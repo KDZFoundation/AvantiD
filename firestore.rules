@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Imposition jobs collection accessed via server API and client test panel
+    match /imposition_jobs/{jobId} {
+      allow read, write: if true;
+    }
+  }
+}

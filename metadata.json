@@ -1,0 +1,6 @@
+{
+  "name": "POD Imposition API",
+  "description": "Print on Demand (POD) imposition backend API supporting Ganging and Cut-and-Stack workflows, Guillotine and CNC cut, with developer test panel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
