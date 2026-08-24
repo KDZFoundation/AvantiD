@@ -93,13 +93,16 @@ export const JobSubmitForm: React.FC<JobSubmitFormProps> = ({ onJobSubmitted }) 
     try {
       const payload = getPayload();
 
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (apiKey.trim()) {
+        headers['X-API-Key'] = apiKey.trim();
+      }
+
       const response = await fetch('/api/jobs', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': apiKey,
-          'x-pod-test-panel': 'true', // bypass test token if key matches
-        },
+        headers,
         body: JSON.stringify(payload),
       });
 

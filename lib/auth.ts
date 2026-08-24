@@ -21,14 +21,14 @@ export function validateApiKey(req: NextRequest): AuthResult {
     };
   }
 
-  // 2. Check internal test panel secret if provided
-  const internalTestHeader = req.headers.get('x-pod-test-panel');
-  if (internalTestHeader) {
-    if (internalTestSecret && internalTestSecret.trim().length > 0 && internalTestHeader === internalTestSecret) {
+  // 2. Check internal test panel session cookie (pod_test_session)
+  const sessionCookie = req.cookies.get('pod_test_session')?.value;
+  if (sessionCookie && internalTestSecret && internalTestSecret.trim().length > 0) {
+    if (sessionCookie === internalTestSecret) {
       return {
         isAuthenticated: true,
         source: 'INTERNAL_DEV_PANEL',
-        keyUsed: 'internal-test-panel-session',
+        keyUsed: 'internal-test-panel-session-cookie',
       };
     }
   }

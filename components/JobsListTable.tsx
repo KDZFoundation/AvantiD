@@ -38,11 +38,7 @@ export const JobsListTable: React.FC<JobsListTableProps> = ({
         if (statusFilter !== 'ALL') url += `&status=${statusFilter}`;
         if (workflowFilter !== 'ALL') url += `&workflow=${workflowFilter}`;
 
-        const res = await fetch(url, {
-          headers: {
-            'x-pod-test-panel': 'true',
-          },
-        });
+        const res = await fetch(url);
 
         if (res.ok && !isCancelled) {
           const data = await res.json();

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { DevOpsStatusHeader } from '@/components/DevOpsStatusHeader';
 import { JobSubmitForm } from '@/components/JobSubmitForm';
 import { JobsListTable } from '@/components/JobsListTable';
@@ -11,14 +11,12 @@ import {
   Layers,
   FileCode2,
   GitMerge,
-  Server,
-  Cloud,
-  CheckCircle2,
-  Terminal,
-  Cpu,
-  ArrowRight,
   Shield,
-  HelpCircle,
+  Lock,
+  LogIn,
+  LogOut,
+  AlertCircle,
+  KeyRound,
 } from 'lucide-react';
 
 export default function HomePage() {
@@ -26,16 +24,82 @@ export default function HomePage() {
   const [selectedJob, setSelectedJob] = useState<ImpositionJob | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState<number>(0);
 
+  // Session & Authentication state for the browser Test Panel
+  const [isCheckingSession, setIsCheckingSession] = useState<boolean>(true);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [loginPassword, setLoginPassword] = useState<string>('');
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    fetch('/api/test-panel/session')
+      .then((res) => (res.ok ? res.json() : { authenticated: false }))
+      .then((data) => {
+        if (!isCancelled) {
+          setIsAuthenticated(Boolean(data.authenticated));
+          setIsCheckingSession(false);
+        }
+      })
+      .catch(() => {
+        if (!isCancelled) {
+          setIsAuthenticated(false);
+          setIsCheckingSession(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!loginPassword) return;
+
+    setIsLoggingIn(true);
+    setLoginError(null);
+
+    try {
+      const res = await fetch('/api/test-panel/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ password: loginPassword }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        setIsAuthenticated(true);
+        setLoginPassword('');
+      } else {
+        setLoginError(data.message || 'Niepoprawne hasło dostępowe do panelu testowego.');
+      }
+    } catch (err: any) {
+      setLoginError(err.message || 'Błąd połączenia z serwerem podczas logowania.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/test-panel/session', { method: 'DELETE' });
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+    setIsAuthenticated(false);
+  };
+
   const handleJobSubmitted = async (jobId: string) => {
     setRefreshTrigger((prev) => prev + 1);
-    // Fetch and open the newly created job details
     try {
-      const res = await fetch(`/api/jobs/${jobId}`, {
-        headers: { 'x-pod-test-panel': 'true' },
-      });
+      const res = await fetch(`/api/jobs/${jobId}`);
       if (res.ok) {
         const data = await res.json();
-        // Transform to ImpositionJob format if necessary
         setSelectedJob({
           id: data.job_id,
           status: data.status,
@@ -64,9 +128,7 @@ export default function HomePage() {
   const handleRefreshCurrentJob = async () => {
     if (!selectedJob) return;
     try {
-      const res = await fetch(`/api/jobs/${selectedJob.id}`, {
-        headers: { 'x-pod-test-panel': 'true' },
-      });
+      const res = await fetch(`/api/jobs/${selectedJob.id}`);
       if (res.ok) {
         const data = await res.json();
         setSelectedJob({
@@ -95,9 +157,6 @@ export default function HomePage() {
     try {
       const res = await fetch(`/api/jobs/${jobId}/cancel`, {
         method: 'POST',
-        headers: {
-          'x-pod-test-panel': 'true',
-        },
       });
       if (res.ok) {
         handleRefreshCurrentJob();
@@ -114,57 +173,138 @@ export default function HomePage() {
         {/* Top DevOps Header */}
         <DevOpsStatusHeader />
 
-        {/* Tab Navigation */}
-        <div className="flex items-center gap-2 border-b border-neutral-200 dark:border-neutral-800 pb-1">
-          <button
-            onClick={() => setActiveTab('panel')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-colors ${
-              activeTab === 'panel'
-                ? 'bg-sky-600 text-white shadow-sm'
-                : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-800'
-            }`}
-          >
-            <Layers className="h-4 w-4" />
-            Panel Testowy API (Wysyłanie i Podgląd Zleceń)
-          </button>
+        {/* Tab Navigation & Logout Button */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-200 dark:border-neutral-800 pb-1">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setActiveTab('panel')}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-colors ${
+                activeTab === 'panel'
+                  ? 'bg-sky-600 text-white shadow-sm'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-800'
+              }`}
+            >
+              <Layers className="h-4 w-4" />
+              Panel Testowy API (Wysyłanie i Podgląd Zleceń)
+            </button>
 
-          <button
-            onClick={() => setActiveTab('openapi')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-colors ${
-              activeTab === 'openapi'
-                ? 'bg-sky-600 text-white shadow-sm'
-                : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-800'
-            }`}
-          >
-            <FileCode2 className="h-4 w-4" />
-            Dokumentacja OpenAPI 3.1 & Endpointy
-          </button>
+            <button
+              onClick={() => setActiveTab('openapi')}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-colors ${
+                activeTab === 'openapi'
+                  ? 'bg-sky-600 text-white shadow-sm'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-800'
+              }`}
+            >
+              <FileCode2 className="h-4 w-4" />
+              Dokumentacja OpenAPI 3.1 & Endpointy
+            </button>
 
-          <button
-            onClick={() => setActiveTab('arch')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-colors ${
-              activeTab === 'arch'
-                ? 'bg-sky-600 text-white shadow-sm'
-                : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-800'
-            }`}
-          >
-            <GitMerge className="h-4 w-4" />
-            Architektura & Integracja Azure POD
-          </button>
+            <button
+              onClick={() => setActiveTab('arch')}
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-colors ${
+                activeTab === 'arch'
+                  ? 'bg-sky-600 text-white shadow-sm'
+                  : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-800'
+              }`}
+            >
+              <GitMerge className="h-4 w-4" />
+              Architektura & Integracja Azure POD
+            </button>
+          </div>
+
+          {isAuthenticated && (
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-400 hover:text-red-600 dark:hover:text-red-400 hover:bg-neutral-200 dark:hover:bg-neutral-800 rounded-lg transition-colors"
+              title="Wyloguj z bezpiecznej sesji deweloperskiej"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+              Wyloguj sesję
+            </button>
+          )}
         </div>
 
         {/* Tab 1: Test Panel */}
         {activeTab === 'panel' && (
-          <div className="space-y-6">
-            {/* Submit Job Box */}
-            <JobSubmitForm onJobSubmitted={handleJobSubmitted} />
+          <div>
+            {isCheckingSession ? (
+              <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-12 text-center text-xs text-neutral-500">
+                Sprawdzanie uprawnień i sesji deweloperskiej...
+              </div>
+            ) : !isAuthenticated ? (
+              /* Developer Login Screen */
+              <div className="max-w-md mx-auto my-12 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-8 shadow-sm space-y-6">
+                <div className="text-center space-y-2">
+                  <div className="inline-flex p-3 rounded-2xl bg-sky-50 dark:bg-sky-950/50 text-sky-600 dark:text-sky-400 border border-sky-200 dark:border-sky-800 mb-2">
+                    <Lock className="h-6 w-6" />
+                  </div>
+                  <h2 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">
+                    Panel Testowy POD Imposition
+                  </h2>
+                  <p className="text-xs text-neutral-500 leading-relaxed">
+                    Wprowadź hasło sesji testowej (<code className="font-mono bg-neutral-100 dark:bg-neutral-800 px-1 py-0.5 rounded text-[11px]">INTERNAL_TEST_PANEL_SECRET</code>), aby uzyskać dostęp do panelu deweloperskiego.
+                  </p>
+                </div>
 
-            {/* Jobs Queue Table */}
-            <JobsListTable
-              onSelectJob={handleSelectJob}
-              selectedJobId={selectedJob?.id}
-              refreshTrigger={refreshTrigger}
-            />
+                {loginError && (
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 text-red-700 dark:text-red-300 text-xs">
+                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5 text-red-500" />
+                    <span>{loginError}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleLogin} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-300 mb-1.5">
+                      Hasło dostępowe (INTERNAL_TEST_PANEL_SECRET)
+                    </label>
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-neutral-400">
+                        <KeyRound className="h-4 w-4" />
+                      </div>
+                      <input
+                        type="password"
+                        required
+                        value={loginPassword}
+                        onChange={(e) => setLoginPassword(e.target.value)}
+                        placeholder="Wpisz lub wklej sekret..."
+                        className="w-full pl-9 pr-3 py-2 text-xs font-mono rounded-xl border border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-950 focus:ring-2 focus:ring-sky-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isLoggingIn}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs shadow-sm transition-colors disabled:opacity-50"
+                  >
+                    <LogIn className="h-4 w-4" />
+                    {isLoggingIn ? 'Weryfikacja...' : 'Zaloguj do panelu testowego'}
+                  </button>
+                </form>
+
+                <div className="text-[11px] text-neutral-400 border-t border-neutral-100 dark:border-neutral-800 pt-4 flex items-center gap-2">
+                  <Shield className="h-4 w-4 text-emerald-500 shrink-0" />
+                  <span>
+                    Sesja oparta o bezpieczne ciasteczko <code className="font-mono text-[10px]">httpOnly</code> (Secure & SameSite).
+                  </span>
+                </div>
+              </div>
+            ) : (
+              /* Authenticated Test Panel */
+              <div className="space-y-6">
+                {/* Submit Job Box */}
+                <JobSubmitForm onJobSubmitted={handleJobSubmitted} />
+
+                {/* Jobs Queue Table */}
+                <JobsListTable
+                  onSelectJob={handleSelectJob}
+                  selectedJobId={selectedJob?.id}
+                  refreshTrigger={refreshTrigger}
+                />
+              </div>
+            )}
           </div>
         )}
 
