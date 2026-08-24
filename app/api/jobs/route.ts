@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKey } from '@/lib/auth';
 import { ImpositionJobPayloadSchema } from '@/lib/validation';
-import { db } from '@/lib/firebase';
-import { collection, doc, setDoc, getDocs, query, orderBy, limit, where } from 'firebase/firestore';
+import { adminDb } from '@/lib/firebase-admin';
 import { executeImpositionJob } from '@/lib/imposition-engine';
 import { ImpositionJob } from '@/types/imposition';
 
@@ -11,13 +10,14 @@ export async function POST(req: NextRequest) {
   // 1. Authenticate incoming request (Azure POD via X-API-Key or Test Panel)
   const auth = validateApiKey(req);
   if (!auth.isAuthenticated) {
+    const isMisconfigured = auth.error?.startsWith('Server Misconfiguration');
     return NextResponse.json(
       {
-        error: 'Unauthorized',
+        error: isMisconfigured ? 'Configuration Error' : 'Unauthorized',
         message: auth.error,
-        code: 'AUTH_FAILED',
+        code: isMisconfigured ? 'SERVER_MISCONFIGURED' : 'AUTH_FAILED',
       },
-      { status: 401 }
+      { status: isMisconfigured ? 500 : 401 }
     );
   }
 
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
   const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   const nowIso = new Date().toISOString();
 
-  // 3. Create initial QUEUED record in Firestore
+  // 3. Create initial QUEUED record in Firestore using Admin SDK
   const initialJob: ImpositionJob = {
     id: jobId,
     status: 'QUEUED',
@@ -75,11 +75,10 @@ export async function POST(req: NextRequest) {
   };
 
   try {
-    const jobRef = doc(db, 'imposition_jobs', jobId);
-    await setDoc(jobRef, initialJob);
+    const jobRef = adminDb.collection('imposition_jobs').doc(jobId);
+    await jobRef.set(initialJob);
 
     // 4. Trigger asynchronous imposition optimization execution without blocking response
-    // Uses Next.js background execution pattern
     executeImpositionJob(jobId, payload).catch((err) => {
       console.error(`[BackgroundExecution] Unhandled failure in job ${jobId}:`, err);
     });
@@ -123,13 +122,14 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   const auth = validateApiKey(req);
   if (!auth.isAuthenticated) {
+    const isMisconfigured = auth.error?.startsWith('Server Misconfiguration');
     return NextResponse.json(
       {
-        error: 'Unauthorized',
+        error: isMisconfigured ? 'Configuration Error' : 'Unauthorized',
         message: auth.error,
-        code: 'AUTH_FAILED',
+        code: isMisconfigured ? 'SERVER_MISCONFIGURED' : 'AUTH_FAILED',
       },
-      { status: 401 }
+      { status: isMisconfigured ? 500 : 401 }
     );
   }
 
@@ -139,29 +139,23 @@ export async function GET(req: NextRequest) {
   const limitParam = parseInt(searchParams.get('limit') || '50', 10);
 
   try {
-    const jobsCol = collection(db, 'imposition_jobs');
-    let q;
+    let query = adminDb.collection('imposition_jobs').limit(limitParam);
 
-    if (statusFilter && workflowFilter) {
-      q = query(
-        jobsCol,
-        where('status', '==', statusFilter),
-        where('workflow', '==', workflowFilter),
-        limit(limitParam)
-      );
-    } else if (statusFilter) {
-      q = query(jobsCol, where('status', '==', statusFilter), limit(limitParam));
-    } else if (workflowFilter) {
-      q = query(jobsCol, where('workflow', '==', workflowFilter), limit(limitParam));
-    } else {
-      q = query(jobsCol, limit(limitParam));
+    if (statusFilter && statusFilter !== 'ALL') {
+      query = adminDb.collection('imposition_jobs').where('status', '==', statusFilter).limit(limitParam);
+    }
+    if (workflowFilter && workflowFilter !== 'ALL') {
+      query = (statusFilter && statusFilter !== 'ALL'
+        ? adminDb.collection('imposition_jobs').where('status', '==', statusFilter).where('workflow', '==', workflowFilter)
+        : adminDb.collection('imposition_jobs').where('workflow', '==', workflowFilter)
+      ).limit(limitParam);
     }
 
-    const snapshot = await getDocs(q);
+    const snapshot = await query.get();
     const jobs: ImpositionJob[] = [];
 
-    snapshot.forEach((d) => {
-      jobs.push(d.data() as ImpositionJob);
+    snapshot.forEach((doc) => {
+      jobs.push(doc.data() as ImpositionJob);
     });
 
     // Sort by created_at descending in memory

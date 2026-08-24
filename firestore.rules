@@ -1,9 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Imposition jobs collection accessed via server API and client test panel
+    // Imposition jobs collection is completely protected from direct client SDK access.
+    // All read/write operations must go strictly through the authenticated backend API
+    // which operates via the Firebase Admin SDK.
     match /imposition_jobs/{jobId} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }

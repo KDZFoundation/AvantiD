@@ -25,7 +25,7 @@ interface JobSubmitFormProps {
 export const JobSubmitForm: React.FC<JobSubmitFormProps> = ({ onJobSubmitted }) => {
   const [selectedPresetId, setSelectedPresetId] = useState<string>(PRESETS[0].id);
   const [mode, setMode] = useState<'visual' | 'json'>('visual');
-  const [apiKey, setApiKey] = useState('pod_live_secret_key_poligrafia_2026');
+  const [apiKey, setApiKey] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successInfo, setSuccessInfo] = useState<{ jobId: string; statusUrl: string } | null>(null);
@@ -243,9 +243,10 @@ export const JobSubmitForm: React.FC<JobSubmitFormProps> = ({ onJobSubmitted }) 
               <span className="text-neutral-500 font-medium">Nagłówek X-API-Key:</span>
               <input
                 type="text"
+                placeholder="Wklej POD_API_SECRET_KEY..."
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                className="font-mono text-neutral-900 dark:text-neutral-100 bg-transparent border-none focus:outline-none w-48 text-xs"
+                className="font-mono text-neutral-900 dark:text-neutral-100 bg-transparent border-none focus:outline-none w-52 text-xs"
               />
             </div>
           </div>

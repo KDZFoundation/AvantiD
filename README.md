@@ -6,6 +6,17 @@ System został zaprojektowany do bezproblemowej integracji z zewnętrznymi platf
 
 ---
 
+## 🔒 Bezpieczeństwo i Architektura
+
+1. **Baza Danych Firestore z Pełną Izolacją:**
+   - Reguły `firestore.rules` całkowicie blokują bezpośredni dostęp z poziomu przeglądarki (`allow read, write: if false;`).
+   - Wszystkie operacje zapisu i odczytu bazy odbywają się po stronie serwera przez **Firebase Admin SDK** z uprawnieniami Service Account.
+2. **Klucze API i Zmienne Środowiskowe:**
+   - Autoryzacja żądań bazuje na zmiennej środowiskowej `POD_API_SECRET_KEY` (oraz opcjonalnym `INTERNAL_TEST_PANEL_SECRET` dla panelu wewnętrznego).
+   - W kodzie źródłowym nie ma żadnych zahardkodowanych kluczy. Jeśli zmienna `POD_API_SECRET_KEY` nie zostanie skonfigurowana, API zgłasza błąd `500 Server Misconfigured`.
+
+---
+
 ## 🏗️ Architektura Systemu
 
 ```
@@ -21,19 +32,20 @@ System został zaprojektowany do bezproblemowej integracji z zewnętrznymi platf
                       |   - Route Handlers (/api/jobs, /api/jobs/[id])                |
                       |   - Walidacja Zod (Sheet, Bleed, PDF URLs)                   |
                       |   - Zarządzanie stanem i asynchroniczność (202 Accepted)     |
-                      |   - Wewnętrzny Panel Testowy dla operatorów i devopsów        |
+                      |   - Firebase Admin SDK (server-side Firestore access)         |
                       +───────────────────────────────────────────────────────────────+
                                         │                           │
                    Zapis / Odczyt stanu │                           │ Delegacja ciężkich obliczeń
+                   (Firebase Admin SDK) │                           │
                                         ▼                           ▼
                       +──────────────────────────+     +──────────────────────────────+
                       |     Google Firestore     |     |   Python FastAPI Service     |
                       |  Kolekcja:               |     |   (Google Cloud Run)         |
                       |  `imposition_jobs`       |     |  - PyMuPDF / reportlab / shapely
-                      |  Statusy: QUEUED,        |     |  - Algorytmy gilotynowe 2D   |
-                      |  PROCESSING, COMPLETED   |     |  - Generowanie PDF/X-4/PDF/X-1a
-                      +──────────────────────────+     +──────────────────────────────+
-                                                                    │
+                      |  (Dostęp tylko serwer)   |     |  - Algorytmy gilotynowe 2D   |
+                      |  Statusy: QUEUED,        |     |  - Generowanie PDF/X-4/PDF/X-1a
+                      |  PROCESSING, COMPLETED   |     +──────────────────────────────+
+                      +──────────────────────────+                  │
                                                                     ▼
                                                        +──────────────────────────────+
                                                        | Google Cloud Storage (GCS)   |
@@ -57,9 +69,6 @@ System został zaprojektowany do bezproblemowej integracji z zewnętrznymi platf
    - **`PDF/X-4`:** Zgodność z nowoczesnym workflow RIP, zachowanie warstw i przezroczystości.
    - **`PDF/X-1a`:** Rygorystyczny profil separacji CMYK pod tradycyjne naświetlarki CTP (Computer-to-Plate).
 
-4. **Pobieranie plików z dowolnego źródła:**
-   - Obsługa publicznych i pre-signed URL (np. Azure Blob Storage SAS tokens, AWS S3, Cloudflare R2).
-
 ---
 
 ## 💻 Lokalne Środowisko Uruchomieniowe
@@ -67,32 +76,53 @@ System został zaprojektowany do bezproblemowej integracji z zewnętrznymi platf
 ### Wymagania wstępne
 - **Node.js**: v20+ lub v22+
 - **Menedżer pakietów**: `npm` lub `bun`
+- **Google Cloud Platform Project** z aktywnym Firestore
 
 ### Krok 1: Instalacja zależności
 ```bash
 npm install
 ```
 
-### Krok 2: Konfiguracja zmiennych środowiskowych
-Skopiuj plik `.env.example` do `.env.local`:
-```bash
-cp .env.example .env.local
-```
+### Krok 2: Generowanie bezpiecznych kluczy i konfiguracja `.env.local`
 
-Uzupełnij kluczowe zmienne:
-```env
-# Klucz wymagany w nagłówku X-API-Key
-POD_API_SECRET_KEY="pod_live_secret_key_poligrafia_2026"
+1. Wygeneruj bezpieczne, losowe klucze kryptograficzne w terminalu:
+   ```bash
+   # Generowanie klucza API dla integracji z Azure POD
+   openssl rand -hex 32
 
-# (Opcjonalnie) Zewnętrzny mikroserwis Python Cloud Run
-PYTHON_IMPOSITION_SERVICE_URL=""
-PYTHON_IMPOSITION_SERVICE_API_KEY=""
+   # Generowanie sekretu dla wewnętrznego panelu testowego
+   openssl rand -hex 32
+   ```
 
-# Bucket GCS dla gotowych plików PDF
-GCS_OUTPUT_BUCKET="pod-imposition-production-outputs"
-```
+2. Skopiuj szablon zmiennych środowiskowych:
+   ```bash
+   cp .env.example .env.local
+   ```
 
-### Krok 3: Uruchomienie serwera deweloperskiego
+3. Uzupełnij wygenerowane wartości w pliku `.env.local` (lub w **Secret Managerze / App Settings** w środowisku produkcyjnym):
+   ```env
+   # Bezpieczny klucz wymagany w nagłówku X-API-Key od klienta zewnętrznego
+   POD_API_SECRET_KEY="tutaj_wklej_wygenerowany_klucz_32_bajty"
+
+   # Opcjonalny sekret dla panelu testowego
+   INTERNAL_TEST_PANEL_SECRET="tutaj_wklej_sekret_panelu_testowego"
+   ```
+
+### Krok 3: Konfiguracja Google Cloud Service Account dla Firebase Admin SDK
+
+Aby serwer Next.js (API routes) mógł komunikować się z bazą Firestore przy całkowicie zablokowanych regułach publicznych:
+
+1. Przejdź do [Google Cloud Console](https://console.cloud.google.com/) lub [Firebase Console](https://console.firebase.google.com/).
+2. Wejdź w **Project Settings** -> zakładka **Service accounts**.
+3. Kliknij **Generate new private key** (Wygeneruj nowy klucz prywatny) – pobierzesz plik JSON z kluczem konta usługi.
+4. **NIGDY nie commituj pobranego pliku JSON do repozytorium!**
+5. Wklej całą zawartość pliku JSON jako jedną linię do zmiennej środowiskowej w `.env.local`:
+   ```env
+   GOOGLE_APPLICATION_CREDENTIALS_JSON='{"type":"service_account","project_id":"twoj-projekt",...}'
+   ```
+   *(W środowisku Google Cloud Run/App Engine zmienna ta nie jest wymagana, jeśli usługa korzysta z domyślnego Service Account powiązanego z projektem GCP).*
+
+### Krok 4: Uruchomienie serwera deweloperskiego
 ```bash
 npm run dev
 ```
@@ -107,7 +137,7 @@ Aplikacja oraz Panel Testowy będą dostępne pod adresem: `http://localhost:300
 - **Endpoint:** `/api/jobs`
 - **Nagłówki:**
   - `Content-Type: application/json`
-  - `X-API-Key: <TWÓJ_KLUCZ_API>`
+  - `X-API-Key: <TWÓJ_POD_API_SECRET_KEY>`
 
 #### Przykładowy Payload JSON:
 ```json
@@ -161,7 +191,7 @@ Aplikacja oraz Panel Testowy będą dostępne pod adresem: `http://localhost:300
 ### 2. Sprawdzenie statusu i wyników zlecenia
 - **Metoda:** `GET`
 - **Endpoint:** `/api/jobs/{id}`
-- **Nagłówki:** `X-API-Key: <TWÓJ_KLUCZ_API>`
+- **Nagłówki:** `X-API-Key: <TWÓJ_POD_API_SECRET_KEY>`
 
 #### Odpowiedź `200 OK` (po zakończeniu obliczeń):
 ```json
@@ -195,12 +225,14 @@ Aplikacja oraz Panel Testowy będą dostępne pod adresem: `http://localhost:300
 ### 3. Pobranie listy zleceń
 - **Metoda:** `GET`
 - **Endpoint:** `/api/jobs?status=COMPLETED&workflow=GANGING&limit=50`
+- **Nagłówki:** `X-API-Key: <TWÓJ_POD_API_SECRET_KEY>`
 
 ---
 
 ### 4. Anulowanie zlecenia
 - **Metoda:** `POST`
 - **Endpoint:** `/api/jobs/{id}/cancel`
+- **Nagłówki:** `X-API-Key: <TWÓJ_POD_API_SECRET_KEY>`
 
 ---
 

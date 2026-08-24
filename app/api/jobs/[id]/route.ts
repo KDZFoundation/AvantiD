@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKey } from '@/lib/auth';
-import { db } from '@/lib/firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { adminDb } from '@/lib/firebase-admin';
 import { ImpositionJob } from '@/types/imposition';
 
 interface RouteParams {
@@ -12,13 +11,14 @@ interface RouteParams {
 export async function GET(req: NextRequest, { params }: RouteParams) {
   const auth = validateApiKey(req);
   if (!auth.isAuthenticated) {
+    const isMisconfigured = auth.error?.startsWith('Server Misconfiguration');
     return NextResponse.json(
       {
-        error: 'Unauthorized',
+        error: isMisconfigured ? 'Configuration Error' : 'Unauthorized',
         message: auth.error,
-        code: 'AUTH_FAILED',
+        code: isMisconfigured ? 'SERVER_MISCONFIGURED' : 'AUTH_FAILED',
       },
-      { status: 401 }
+      { status: isMisconfigured ? 500 : 401 }
     );
   }
 
@@ -31,10 +31,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   }
 
   try {
-    const jobRef = doc(db, 'imposition_jobs', id);
-    const snap = await getDoc(jobRef);
+    const jobDoc = await adminDb.collection('imposition_jobs').doc(id).get();
 
-    if (!snap.exists()) {
+    if (!jobDoc.exists) {
       return NextResponse.json(
         {
           error: 'Not Found',
@@ -45,7 +44,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    const job = snap.data() as ImpositionJob;
+    const job = jobDoc.data() as ImpositionJob;
 
     // Return status format designed for Azure POD polling
     return NextResponse.json({
@@ -64,7 +63,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       // Original request parameters for verification
       request_spec: {
         sheet: job.sheet,
-        orders_count: job.orders.length,
+        orders_count: job.orders?.length || 0,
         orders: job.orders,
       },
     });

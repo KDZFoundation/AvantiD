@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKey } from '@/lib/auth';
-import { db } from '@/lib/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { adminDb } from '@/lib/firebase-admin';
 import { ImpositionJob } from '@/types/imposition';
 
 interface RouteParams {
@@ -12,13 +11,14 @@ interface RouteParams {
 export async function POST(req: NextRequest, { params }: RouteParams) {
   const auth = validateApiKey(req);
   if (!auth.isAuthenticated) {
+    const isMisconfigured = auth.error?.startsWith('Server Misconfiguration');
     return NextResponse.json(
       {
-        error: 'Unauthorized',
+        error: isMisconfigured ? 'Configuration Error' : 'Unauthorized',
         message: auth.error,
-        code: 'AUTH_FAILED',
+        code: isMisconfigured ? 'SERVER_MISCONFIGURED' : 'AUTH_FAILED',
       },
-      { status: 401 }
+      { status: isMisconfigured ? 500 : 401 }
     );
   }
 
@@ -31,10 +31,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   }
 
   try {
-    const jobRef = doc(db, 'imposition_jobs', id);
-    const snap = await getDoc(jobRef);
+    const docRef = adminDb.collection('imposition_jobs').doc(id);
+    const snap = await docRef.get();
 
-    if (!snap.exists()) {
+    if (!snap.exists) {
       return NextResponse.json(
         {
           error: 'Not Found',
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     const nowIso = new Date().toISOString();
-    await updateDoc(jobRef, {
+    await docRef.update({
       status: 'CANCELLED',
       updated_at: nowIso,
       completed_at: nowIso,

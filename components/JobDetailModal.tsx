@@ -100,11 +100,11 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   };
 
   const curlGetCommand = `curl -X GET "https://api.example.com/api/jobs/${job.id}" \\
-  -H "X-API-Key: pod_live_secret_key_poligrafia_2026"`;
+  -H "X-API-Key: YOUR_POD_API_SECRET_KEY"`;
 
   const csharpSnippet = `// Azure Function / Worker C# Status Poller
 using var client = new HttpClient();
-client.DefaultRequestHeaders.Add("X-API-Key", "pod_live_secret_key_poligrafia_2026");
+client.DefaultRequestHeaders.Add("X-API-Key", Environment.GetEnvironmentVariable("POD_API_SECRET_KEY"));
 var response = await client.GetAsync("https://api.example.com/api/jobs/${job.id}");
 var jobStatus = await response.Content.ReadFromJsonAsync<ImpositionJobResponse>();
 if (jobStatus.Status == "COMPLETED") {
@@ -113,9 +113,9 @@ if (jobStatus.Status == "COMPLETED") {
 }`;
 
   const pythonSnippet = `# Azure Python Automation Worker
-import requests
+import os, requests
 
-headers = {"X-API-Key": "pod_live_secret_key_poligrafia_2026"}
+headers = {"X-API-Key": os.environ.get("POD_API_SECRET_KEY", "YOUR_POD_API_SECRET_KEY")}
 resp = requests.get("https://api.example.com/api/jobs/${job.id}", headers=headers)
 data = resp.json()
 if data.get("status") == "COMPLETED":

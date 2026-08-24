@@ -4,7 +4,11 @@ export const OrderItemSchema = z.object({
   order_id: z.string().min(1, 'order_id cannot be empty'),
   pdf_source_url: z
     .string()
-    .url('pdf_source_url must be a valid downloadable HTTPS/HTTP URL (e.g. Azure Blob, S3, or external storage)'),
+    .min(1, 'pdf_source_url cannot be empty')
+    .refine(
+      (val) => val.startsWith('http://') || val.startsWith('https://') || val.startsWith('/api/files/') || val.startsWith('data:'),
+      { message: 'pdf_source_url must be a valid URL (https://, http://, or uploaded file /api/files/...)' }
+    ),
   trim_width_mm: z
     .number()
     .positive('trim_width_mm must be a positive number')

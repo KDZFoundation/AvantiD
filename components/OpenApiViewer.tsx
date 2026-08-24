@@ -14,7 +14,7 @@ export const OpenApiViewer: React.FC = () => {
 
   const sampleCurl = `curl -X POST "https://api.example.com/api/jobs" \\
   -H "Content-Type: application/json" \\
-  -H "X-API-Key: pod_live_secret_key_poligrafia_2026" \\
+  -H "X-API-Key: YOUR_POD_API_SECRET_KEY" \\
   -d '{
     "workflow": "GANGING",
     "device_type": "GUILLOTINE",

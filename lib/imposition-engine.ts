@@ -7,8 +7,7 @@ import {
   OpticalMark,
   WorkflowDetails,
 } from '@/types/imposition';
-import { doc, updateDoc } from 'firebase/firestore';
-import { db } from './firebase';
+import { adminDb } from './firebase-admin';
 
 /**
  * Executes or delegates the imposition calculation.
@@ -25,11 +24,11 @@ import { db } from './firebase';
  */
 export async function executeImpositionJob(jobId: string, payload: ImpositionJobPayload): Promise<void> {
   const startTime = Date.now();
-  const jobRef = doc(db, 'imposition_jobs', jobId);
+  const jobDoc = adminDb.collection('imposition_jobs').doc(jobId);
 
   try {
     // 1. Mark status as PROCESSING in Firestore
-    await updateDoc(jobRef, {
+    await jobDoc.update({
       status: 'PROCESSING',
       started_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -79,7 +78,7 @@ export async function executeImpositionJob(jobId: string, payload: ImpositionJob
     }
 
     // 2. Persist COMPLETED state and detailed metrics to Firestore
-    await updateDoc(jobRef, {
+    await jobDoc.update({
       status: 'COMPLETED',
       completed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -88,7 +87,7 @@ export async function executeImpositionJob(jobId: string, payload: ImpositionJob
   } catch (error: any) {
     console.error(`[ImpositionEngine] Job ${jobId} failed:`, error);
     try {
-      await updateDoc(jobRef, {
+      await jobDoc.update({
         status: 'FAILED',
         error_message: error.message || 'Unknown imposition layout error',
         completed_at: new Date().toISOString(),
