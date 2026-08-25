@@ -1008,6 +1008,27 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         font: fontHelvetica,
         color: rgb(0.3, 0.35, 0.45),
       });
+
+      // Job End Summary Marker on last back sheet of each order (Gelato style)
+      const currentOrderId = sheetLayout.placed_items[0]?.order_id;
+      const nextSheet = job.result.sheets[sheetLayout.sheet_index]; // sheet_index is 1-based
+      const isLastSheetOfJobOrder = !nextSheet || nextSheet.placed_items[0]?.order_id !== currentOrderId;
+
+      if (isLastSheetOfJobOrder && sheetLayout.placed_items[0]) {
+        const firstItem = sheetLayout.placed_items[0];
+        const jobTag = firstItem.job_label || `Print job ${firstItem.order_index}/${firstItem.total_orders}`;
+        const wcTag = firstItem.order_index === 1 ? 'WC' : 'Q0';
+        const jobSummaryText = `${jobTag} | ${wcTag} | ${firstItem.order_id}`;
+
+        drawBarcode1D(pageBack, firstItem.order_id, sheetWidthPt - 220, 8, 12, 60);
+        pageBack.drawText(jobSummaryText, {
+          x: sheetWidthPt - 150,
+          y: 10,
+          size: 8,
+          font: fontHelveticaBold,
+          color: rgb(0, 0, 0),
+        });
+      }
     }
 
     // 6. Serialize and stream final PDF (useObjectStreams: false ensures maximum compatibility with Adobe Acrobat and RIPs)
