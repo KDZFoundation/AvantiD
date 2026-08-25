@@ -1,9 +1,8 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Development fallback for Firestore Database in sandbox
     match /imposition_jobs/{jobId} {
-      allow read, write: if true;
+      allow read, write: if false;
     }
   }
 }
