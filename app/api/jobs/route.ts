@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKey } from '@/lib/auth';
 import { ImpositionJobPayloadSchema } from '@/lib/validation';
-import { adminDb } from '@/lib/firebase-admin';
+import { saveJobToStore, listJobsFromStore } from '@/lib/job-store';
 import { executeImpositionJob } from '@/lib/imposition-engine';
 import { ImpositionJob } from '@/types/imposition';
 
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
   const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   const nowIso = new Date().toISOString();
 
-  // 3. Create initial QUEUED record in Firestore using Admin SDK
+  // 3. Create initial QUEUED record
   const initialJob: ImpositionJob = {
     id: jobId,
     name: payload.name,
@@ -76,8 +76,7 @@ export async function POST(req: NextRequest) {
   };
 
   try {
-    const jobRef = adminDb.collection('imposition_jobs').doc(jobId);
-    await jobRef.set(initialJob);
+    await saveJobToStore(initialJob);
 
     // 4. Trigger asynchronous imposition optimization execution without blocking response
     executeImpositionJob(jobId, payload).catch((err) => {
@@ -107,12 +106,12 @@ export async function POST(req: NextRequest) {
       }
     );
   } catch (err: any) {
-    console.error('[POST /api/jobs] Firestore save error:', err);
+    console.error('[POST /api/jobs] Save error:', err);
     return NextResponse.json(
       {
         error: 'Database Error',
         message: `Failed to persist imposition job: ${err.message}`,
-        code: 'FIRESTORE_WRITE_FAILED',
+        code: 'JOB_PERSIST_FAILED',
       },
       { status: 500 }
     );
@@ -140,48 +139,25 @@ export async function GET(req: NextRequest) {
   const limitParam = parseInt(searchParams.get('limit') || '50', 10);
 
   try {
-    let query: FirebaseFirestore.Query = adminDb.collection('imposition_jobs');
-
-    if (statusFilter && statusFilter !== 'ALL') {
-      query = query.where('status', '==', statusFilter);
-    }
-    if (workflowFilter && workflowFilter !== 'ALL') {
-      query = query.where('workflow', '==', workflowFilter);
-    }
-
-    try {
-      query = query.orderBy('created_at', 'desc').limit(limitParam);
-    } catch {
-      query = query.limit(limitParam);
-    }
-
-    let snapshot: FirebaseFirestore.QuerySnapshot;
-    try {
-      snapshot = await query.get();
-    } catch {
-      // Fallback query if composite index is pending
-      snapshot = await adminDb.collection('imposition_jobs').limit(limitParam).get();
-    }
-    const jobs: ImpositionJob[] = [];
-
-    snapshot.forEach((doc) => {
-      jobs.push(doc.data() as ImpositionJob);
+    const result = await listJobsFromStore({
+      status: statusFilter,
+      workflow: workflowFilter,
+      limit: limitParam,
     });
-
-    // Sort by created_at descending in memory
-    jobs.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
     return NextResponse.json({
-      total: jobs.length,
-      jobs: jobs,
+      total: result.total,
+      jobs: result.jobs,
+      isQuotaExceeded: result.isQuotaExceeded,
+      quotaInfo: result.quotaInfo,
     });
   } catch (err: any) {
-    console.error('[GET /api/jobs] Firestore query error:', err);
+    console.error('[GET /api/jobs] Query error:', err);
     return NextResponse.json(
       {
         error: 'Database Error',
         message: `Failed to fetch imposition jobs: ${err.message}`,
-        code: 'FIRESTORE_QUERY_FAILED',
+        code: 'QUERY_FAILED',
       },
       { status: 500 }
     );

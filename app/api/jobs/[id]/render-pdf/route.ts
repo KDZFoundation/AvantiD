@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKey } from '@/lib/auth';
-import { adminDb } from '@/lib/firebase-admin';
+import { getJobFromStore } from '@/lib/job-store';
 import { ImpositionJob } from '@/types/imposition';
 import { PDFDocument, PDFEmbeddedPage, rgb, StandardFonts } from 'pdf-lib';
 import fs from 'fs';
@@ -67,21 +67,19 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   }
 
   try {
-    // 2. Fetch imposition job from Firestore using Admin SDK
-    const jobDoc = await adminDb.collection('imposition_jobs').doc(id).get();
+    // 2. Fetch imposition job from Store
+    const job = await getJobFromStore(id);
 
-    if (!jobDoc.exists) {
+    if (!job) {
       return NextResponse.json(
         {
           error: 'Not Found',
-          message: `Imposition job with ID '${id}' was not found in Firestore`,
+          message: `Imposition job with ID '${id}' was not found`,
           code: 'JOB_NOT_FOUND',
         },
         { status: 404 }
       );
     }
-
-    const job = jobDoc.data() as ImpositionJob;
 
     if (!job.result || !job.result.sheets || job.result.sheets.length === 0) {
       return NextResponse.json(

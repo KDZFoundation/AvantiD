@@ -8,6 +8,8 @@ import {
   Clock,
   RefreshCw,
   AlertCircle,
+  AlertTriangle,
+  ExternalLink,
   XCircle,
   Eye,
   FileText,
@@ -30,11 +32,44 @@ export const JobsListTable: React.FC<JobsListTableProps> = ({
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [workflowFilter, setWorkflowFilter] = useState<string>('ALL');
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [isQuotaExceeded, setIsQuotaExceeded] = useState(false);
+  const [quotaUpgradeUrl, setQuotaUpgradeUrl] = useState<string | null>(null);
+
+  const loadData = useCallback(async () => {
+    try {
+      let url = '/api/jobs?limit=50';
+      if (statusFilter !== 'ALL') url += `&status=${statusFilter}`;
+      if (workflowFilter !== 'ALL') url += `&workflow=${workflowFilter}`;
+
+      const res = await fetch(url, {
+        headers: {
+          'x-pod-test-panel': 'true',
+        },
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setJobs(data.jobs || []);
+        if (data.isQuotaExceeded) {
+          setIsQuotaExceeded(true);
+          if (data.quotaInfo?.upgradeUrl) {
+            setQuotaUpgradeUrl(data.quotaInfo.upgradeUrl);
+          }
+        } else {
+          setIsQuotaExceeded(false);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch jobs:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [statusFilter, workflowFilter]);
 
   useEffect(() => {
     let isCancelled = false;
 
-    const loadData = async () => {
+    const fetchData = async () => {
       try {
         let url = '/api/jobs?limit=50';
         if (statusFilter !== 'ALL') url += `&status=${statusFilter}`;
@@ -49,30 +84,38 @@ export const JobsListTable: React.FC<JobsListTableProps> = ({
         if (res.ok && !isCancelled) {
           const data = await res.json();
           setJobs(data.jobs || []);
+          if (data.isQuotaExceeded) {
+            setIsQuotaExceeded(true);
+            if (data.quotaInfo?.upgradeUrl) {
+              setQuotaUpgradeUrl(data.quotaInfo.upgradeUrl);
+            }
+          } else {
+            setIsQuotaExceeded(false);
+          }
         }
       } catch (err) {
-        if (!isCancelled) {
-          console.error('Failed to fetch jobs:', err);
-        }
+        if (!isCancelled) console.error('Failed to fetch jobs:', err);
       } finally {
-        if (!isCancelled) {
-          setIsLoading(false);
-        }
+        if (!isCancelled) setIsLoading(false);
       }
     };
 
-    loadData();
+    fetchData();
 
-    let intervalId: NodeJS.Timeout | null = null;
-    if (autoRefresh) {
-      intervalId = setInterval(() => {
-        loadData();
-      }, 2500);
+    if (!autoRefresh) {
+      return () => {
+        isCancelled = true;
+      };
     }
+
+    const intervalId = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      fetchData();
+    }, 8000);
 
     return () => {
       isCancelled = true;
-      if (intervalId) clearInterval(intervalId);
+      clearInterval(intervalId);
     };
   }, [statusFilter, workflowFilter, refreshTrigger, autoRefresh]);
 
@@ -118,6 +161,29 @@ export const JobsListTable: React.FC<JobsListTableProps> = ({
 
   return (
     <div className="rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shadow-sm overflow-hidden">
+      {/* Quota Exceeded Alert Banner if triggered */}
+      {isQuotaExceeded && (
+        <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-3 text-xs text-amber-900 dark:text-amber-200 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span>
+              <strong>Darmowy limit odczytów Firestore (Free daily read units) został osiągnięty.</strong> System automatycznie działa w buforze pamięciowym (In-Memory Fallback), dzięki czemu wszystkie zlecenia, optymalizacje i pobieranie PDF działają bez zakłóceń.
+            </span>
+          </div>
+          {quotaUpgradeUrl && (
+            <a
+              href={quotaUpgradeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white font-medium text-[11px] transition-colors shrink-0 shadow-sm"
+            >
+              Zarządzaj planem Firestore
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </div>
+      )}
+
       {/* Header & Filters */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-neutral-200 dark:border-neutral-800 bg-neutral-50/80 dark:bg-neutral-950/60 p-4">
         <div className="flex items-center gap-2">
@@ -165,6 +231,16 @@ export const JobsListTable: React.FC<JobsListTableProps> = ({
             ))}
           </div>
 
+          {/* Refresh manual */}
+          <button
+            onClick={() => loadData()}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300 text-xs font-medium transition-colors"
+            title="Odśwież listę zleceń teraz"
+          >
+            <RefreshCw className="h-3 w-3 text-neutral-500" />
+            Odśwież
+          </button>
+
           {/* Auto refresh toggle */}
           <button
             onClick={() => setAutoRefresh(!autoRefresh)}
@@ -174,8 +250,8 @@ export const JobsListTable: React.FC<JobsListTableProps> = ({
                 : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 border-neutral-300 dark:border-neutral-700'
             }`}
           >
-            <RefreshCw className={`h-3 w-3 ${autoRefresh ? 'animate-spin' : ''}`} />
-            Live Polling (2.5s)
+            <span className={`h-2 w-2 rounded-full ${autoRefresh ? 'bg-emerald-500 animate-ping' : 'bg-neutral-400'}`} />
+            {autoRefresh ? 'Live Polling' : 'Polling wyłączony'}
           </button>
         </div>
       </div>
@@ -200,7 +276,7 @@ export const JobsListTable: React.FC<JobsListTableProps> = ({
               <tr>
                 <td colSpan={8} className="p-8 text-center text-neutral-500">
                   <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2 text-sky-500" />
-                  Ładowanie kolejki zleceń z Firestore...
+                  Ładowanie kolejki zleceń...
                 </td>
               </tr>
             ) : jobs.length === 0 ? (

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKey } from '@/lib/auth';
-import { adminDb } from '@/lib/firebase-admin';
-import { ImpositionJob } from '@/types/imposition';
+import { getJobFromStore } from '@/lib/job-store';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -31,20 +30,18 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   }
 
   try {
-    const jobDoc = await adminDb.collection('imposition_jobs').doc(id).get();
+    const job = await getJobFromStore(id);
 
-    if (!jobDoc.exists) {
+    if (!job) {
       return NextResponse.json(
         {
           error: 'Not Found',
-          message: `Imposition job with ID '${id}' was not found in Firestore`,
+          message: `Imposition job with ID '${id}' was not found`,
           code: 'JOB_NOT_FOUND',
         },
         { status: 404 }
       );
     }
-
-    const job = jobDoc.data() as ImpositionJob;
 
     // Return status format designed for Azure POD polling
     return NextResponse.json({
@@ -73,7 +70,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       {
         error: 'Database Error',
         message: `Failed to retrieve job '${id}': ${err.message}`,
-        code: 'FIRESTORE_GET_FAILED',
+        code: 'GET_JOB_FAILED',
       },
       { status: 500 }
     );
