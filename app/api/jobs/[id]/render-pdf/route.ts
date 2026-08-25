@@ -822,13 +822,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       });
     }
 
-    // 6. Serialize and stream final PDF
-    const pdfBytes = await pdfDoc.save();
+    // 6. Serialize and stream final PDF (useObjectStreams: false ensures maximum compatibility with Adobe Acrobat and RIPs)
+    const pdfBytes = await pdfDoc.save({ useObjectStreams: false });
 
     return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',
+        'Content-Length': String(pdfBytes.byteLength),
         'Content-Disposition': `inline; filename="imposition_${id}.pdf"`,
         'X-Imposition-Job-Id': id,
         'Cache-Control': 'private, no-cache, no-store, must-revalidate',

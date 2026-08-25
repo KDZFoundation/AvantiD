@@ -32,6 +32,7 @@ export const OrderItemSchema = z.object({
 });
 
 export const SheetConfigSchema = z.object({
+  name: z.string().optional(),
   width_mm: z
     .number()
     .positive('sheet width_mm must be positive')
@@ -57,6 +58,7 @@ export const SheetConfigSchema = z.object({
 });
 
 export const ImpositionJobPayloadSchema = z.object({
+  name: z.string().optional(),
   workflow: z.enum(['GANGING', 'CUT_AND_STACK'], {
     message: "workflow must be either 'GANGING' or 'CUT_AND_STACK'",
   }),

@@ -38,9 +38,33 @@ export const JobDetailModal: React.FC<JobDetailModalProps> = ({
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
   const [currentSheetIdx, setCurrentSheetIdx] = useState(1);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
   const [codeTab, setCodeTab] = useState<'curl' | 'csharp' | 'python'>('curl');
 
   if (!job) return null;
+
+  const handleDownloadPdf = async () => {
+    setIsDownloading(true);
+    try {
+      const res = await fetch(`/api/jobs/${job.id}/render-pdf?source=test-panel`, {
+        headers: { 'x-pod-test-panel': 'true' },
+      });
+      if (!res.ok) throw new Error(`Błąd pobierania PDF: ${res.statusText}`);
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `imposition_${job.id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err: any) {
+      alert(`Nie udało się pobrać pliku: ${err.message}`);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   const copyToClipboard = (text: string, sectionId: string) => {
     navigator.clipboard.writeText(text);
@@ -409,14 +433,23 @@ if data.get("status") == "COMPLETED":
                   <ExternalLink className="h-3 w-3 opacity-70" />
                 </a>
 
+                <button
+                  type="button"
+                  onClick={handleDownloadPdf}
+                  disabled={isDownloading}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-sky-500 hover:bg-sky-400 disabled:bg-sky-800 text-neutral-950 font-bold rounded-lg text-xs transition-colors shadow-md hover:shadow-sky-500/25"
+                >
+                  <FileDown className={`h-4 w-4 ${isDownloading ? 'animate-bounce' : ''}`} />
+                  {isDownloading ? 'Pobieranie...' : 'Pobierz plik PDF (.pdf)'}
+                </button>
+
                 <a
                   href={`/api/jobs/${job.id}/render-pdf?source=test-panel`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2.5 bg-sky-500 hover:bg-sky-400 text-neutral-950 font-bold rounded-lg text-xs transition-colors shadow-md hover:shadow-sky-500/25"
+                  className="flex items-center gap-1.5 px-3 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-medium rounded-lg text-xs transition-colors border border-neutral-700"
                 >
-                  <FileDown className="h-4 w-4" />
-                  Otwórz / Pobierz PDF Produkcyjny
+                  Podgląd w przeglądarce
                   <ExternalLink className="h-3 w-3 opacity-70" />
                 </a>
               </div>

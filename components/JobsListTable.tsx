@@ -11,6 +11,7 @@ import {
   XCircle,
   Eye,
   FileText,
+  FileDown,
 } from 'lucide-react';
 
 interface JobsListTableProps {
@@ -221,8 +222,18 @@ export const JobsListTable: React.FC<JobsListTableProps> = ({
                         : 'hover:bg-neutral-50 dark:hover:bg-neutral-800/40'
                     }`}
                   >
-                    <td className="p-3.5 font-mono font-bold text-neutral-900 dark:text-neutral-100">
-                      {job.id}
+                    <td className="p-3.5 font-mono text-neutral-900 dark:text-neutral-100">
+                      <div className="font-bold">{job.id}</div>
+                      {job.name && (
+                        <div className="text-[11px] font-sans font-medium text-sky-600 dark:text-sky-400 truncate max-w-[220px]">
+                          {job.name}
+                        </div>
+                      )}
+                      {job.orders && job.orders.length > 0 && (
+                        <div className="text-[10px] font-sans text-neutral-500 truncate max-w-[220px] mt-0.5">
+                          {job.orders.map(o => o.order_id + (o.customer_reference ? ` (${o.customer_reference})` : '')).join(', ')}
+                        </div>
+                      )}
                     </td>
 
                     <td className="p-3.5">
@@ -282,6 +293,19 @@ export const JobsListTable: React.FC<JobsListTableProps> = ({
 
                     <td className="p-3.5 text-right">
                       <div className="inline-flex items-center gap-1.5 justify-end">
+                        {job.status === 'COMPLETED' && (
+                          <a
+                            href={`/api/jobs/${job.id}/render-pdf?source=test-panel`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            title="Pobierz / Otwórz Arkusz PDF"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-sky-500/15 hover:bg-sky-500/25 text-sky-700 dark:text-sky-400 font-semibold text-xs transition-colors border border-sky-500/30"
+                          >
+                            <FileDown className="h-3 w-3" />
+                            PDF
+                          </a>
+                        )}
                         <a
                           href={`/api/jobs/${job.id}/report?source=test-panel`}
                           target="_blank"

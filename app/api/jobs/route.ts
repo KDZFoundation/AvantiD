@@ -59,6 +59,7 @@ export async function POST(req: NextRequest) {
   // 3. Create initial QUEUED record in Firestore using Admin SDK
   const initialJob: ImpositionJob = {
     id: jobId,
+    name: payload.name,
     status: 'QUEUED',
     workflow: payload.workflow,
     device_type: payload.device_type,

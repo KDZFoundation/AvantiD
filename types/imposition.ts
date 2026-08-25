@@ -4,6 +4,7 @@ export type PdfStandard = 'PDF/X-4' | 'PDF/X-1a';
 export type JobStatus = 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
 export interface SheetConfig {
+  name?: string;
   width_mm: number;
   height_mm: number;
   margins_mm: number;
@@ -34,6 +35,7 @@ export interface OrderItem {
 }
 
 export interface ImpositionJobPayload {
+  name?: string;
   workflow: ImpositionWorkflow;
   device_type: DeviceType;
   pdf_standard: PdfStandard;
@@ -147,6 +149,7 @@ export interface JobResult {
 
 export interface ImpositionJob {
   id: string;
+  name?: string;
   status: JobStatus;
   workflow: ImpositionWorkflow;
   device_type: DeviceType;
