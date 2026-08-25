@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKey } from '@/lib/auth';
 import { adminDb } from '@/lib/firebase-admin';
 import { ImpositionJob } from '@/types/imposition';
-import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFEmbeddedPage, rgb, StandardFonts } from 'pdf-lib';
+import fs from 'fs';
+import path from 'path';
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -11,7 +13,36 @@ interface RouteParams {
 // Convert millimeters to PDF points (1 pt = 1/72 inch, 1 inch = 25.4 mm => ~2.83465 pt/mm)
 const MM_TO_PT = 72 / 25.4;
 
-// GET /api/jobs/{id}/render-pdf - Generates and streams vector Imposition Sheet PDF
+interface EmbeddedSource {
+  front: PDFEmbeddedPage | null;
+  back: PDFEmbeddedPage | null;
+  error?: string;
+  sourceWidthPt?: number;
+  sourceHeightPt?: number;
+}
+
+// Helper to fetch PDF buffer from local disk or network
+async function fetchPdfBuffer(url: string, baseOrigin?: string): Promise<Buffer> {
+  // If local public asset (/test-assets/..., /uploads/...)
+  if (url.startsWith('/')) {
+    const localPath = path.join(process.cwd(), 'public', url);
+    if (fs.existsSync(localPath)) {
+      return fs.readFileSync(localPath);
+    }
+    // Fallback to internal HTTP fetch
+    const fetchUrl = (baseOrigin || 'http://localhost:3000') + url;
+    const res = await fetch(fetchUrl);
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    return Buffer.from(await res.arrayBuffer());
+  }
+
+  // If absolute network URL (Google Cloud Storage, etc.)
+  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+// GET /api/jobs/{id}/render-pdf - Generates and streams vector Imposition Sheet PDF with embedded source pages
 export async function GET(req: NextRequest, { params }: RouteParams) {
   // 1. Authenticate incoming request via X-API-Key or Test Panel
   const auth = validateApiKey(req);
@@ -64,20 +95,179 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // 3. Create PDF Document and embed fonts
+    // 3. Create destination PDF Document and embed fonts
     const pdfDoc = await PDFDocument.create();
     const fontHelvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const fontHelveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    // 4. Render each sheet layout onto PDF pages
+    // 4. Pre-fetch and embed all unique source PDF pages (cached for multi-slot reuse)
+    const embeddedSourcesCache = new Map<string, EmbeddedSource>();
+    const uniqueSourceUrls = Array.from(
+      new Set(
+        job.result.sheets
+          .flatMap((s) => s.placed_items)
+          .filter((item) => (item.slot_type || 'PRODUCT') === 'PRODUCT' && item.pdf_source_url)
+          .map((item) => item.pdf_source_url)
+      )
+    );
+
+    const baseOrigin = req.nextUrl?.origin || 'http://localhost:3000';
+
+    for (const sourceUrl of uniqueSourceUrls) {
+      try {
+        const fileBuffer = await fetchPdfBuffer(sourceUrl, baseOrigin);
+        const sourceDoc = await PDFDocument.load(fileBuffer, { ignoreEncryption: true });
+        const pageCount = sourceDoc.getPageCount();
+
+        if (pageCount === 0) {
+          embeddedSourcesCache.set(sourceUrl, {
+            front: null,
+            back: null,
+            error: 'Plik PDF nie zawiera stron',
+          });
+          continue;
+        }
+
+        const frontPage = sourceDoc.getPage(0);
+        const frontEmbedded = await pdfDoc.embedPage(frontPage);
+
+        let backEmbedded = frontEmbedded;
+        if (pageCount > 1) {
+          const backPage = sourceDoc.getPage(1);
+          backEmbedded = await pdfDoc.embedPage(backPage);
+        }
+
+        embeddedSourcesCache.set(sourceUrl, {
+          front: frontEmbedded,
+          back: backEmbedded,
+          sourceWidthPt: frontPage.getWidth(),
+          sourceHeightPt: frontPage.getHeight(),
+        });
+      } catch (err: any) {
+        console.warn(`[render-pdf] Warning: failed to fetch source PDF '${sourceUrl}':`, err.message);
+        embeddedSourcesCache.set(sourceUrl, {
+          front: null,
+          back: null,
+          error: `Nie udało się pobrać pliku źródłowego: ${sourceUrl}`,
+        });
+      }
+    }
+
+    // Helper: Draw 1D pseudo-barcode
+    const drawBarcode1D = (
+      targetPage: any,
+      text: string,
+      startX: number,
+      startY: number,
+      barHeight: number,
+      maxBarcodeWidth: number
+    ) => {
+      const hash = Array.from(text).reduce((acc, char, i) => acc + char.charCodeAt(0) * (i + 1), 0);
+      let currentX = startX;
+      const barWidth = 0.85;
+      const totalBars = Math.min(24, Math.floor(maxBarcodeWidth / (barWidth * 1.8)));
+
+      for (let b = 0; b < totalBars; b++) {
+        const isBlack = (hash * (b + 7) + b * 13) % 3 !== 0;
+        const isThick = isBlack && (hash + b * 5) % 4 === 0;
+        const w = isThick ? barWidth * 1.8 : barWidth;
+
+        if (isBlack) {
+          targetPage.drawRectangle({
+            x: currentX,
+            y: startY,
+            width: w,
+            height: barHeight,
+            color: rgb(0, 0, 0),
+          });
+        }
+        currentX += w + barWidth * 0.75;
+        if (currentX > startX + maxBarcodeWidth) break;
+      }
+    };
+
+    // Helper: Draw standard 4-corner crop marks (pasery / znaczniki cięcia netto)
+    const drawCropMarks = (
+      targetPage: any,
+      trimXPt: number,
+      trimYPt: number,
+      trimWidthPt: number,
+      trimHeightPt: number
+    ) => {
+      const cropLen = 8;
+      const cropOffset = 2;
+
+      // Top-Left
+      targetPage.drawLine({
+        start: { x: trimXPt, y: trimYPt + trimHeightPt + cropOffset },
+        end: { x: trimXPt, y: trimYPt + trimHeightPt + cropOffset + cropLen },
+        thickness: 0.5,
+        color: rgb(0, 0, 0),
+      });
+      targetPage.drawLine({
+        start: { x: trimXPt - cropOffset - cropLen, y: trimYPt + trimHeightPt },
+        end: { x: trimXPt - cropOffset, y: trimYPt + trimHeightPt },
+        thickness: 0.5,
+        color: rgb(0, 0, 0),
+      });
+
+      // Top-Right
+      targetPage.drawLine({
+        start: { x: trimXPt + trimWidthPt, y: trimYPt + trimHeightPt + cropOffset },
+        end: { x: trimXPt + trimWidthPt, y: trimYPt + trimHeightPt + cropOffset + cropLen },
+        thickness: 0.5,
+        color: rgb(0, 0, 0),
+      });
+      targetPage.drawLine({
+        start: { x: trimXPt + trimWidthPt + cropOffset, y: trimYPt + trimHeightPt },
+        end: { x: trimXPt + trimWidthPt + cropOffset + cropLen, y: trimYPt + trimHeightPt },
+        thickness: 0.5,
+        color: rgb(0, 0, 0),
+      });
+
+      // Bottom-Left
+      targetPage.drawLine({
+        start: { x: trimXPt, y: trimYPt - cropOffset - cropLen },
+        end: { x: trimXPt, y: trimYPt - cropOffset },
+        thickness: 0.5,
+        color: rgb(0, 0, 0),
+      });
+      targetPage.drawLine({
+        start: { x: trimXPt - cropOffset - cropLen, y: trimYPt },
+        end: { x: trimXPt - cropOffset, y: trimYPt },
+        thickness: 0.5,
+        color: rgb(0, 0, 0),
+      });
+
+      // Bottom-Right
+      targetPage.drawLine({
+        start: { x: trimXPt + trimWidthPt, y: trimYPt - cropOffset - cropLen },
+        end: { x: trimXPt + trimWidthPt, y: trimYPt - cropOffset },
+        thickness: 0.5,
+        color: rgb(0, 0, 0),
+      });
+      targetPage.drawLine({
+        start: { x: trimXPt + trimWidthPt + cropOffset, y: trimYPt },
+        end: { x: trimXPt + trimWidthPt + cropOffset + cropLen, y: trimYPt },
+        thickness: 0.5,
+        color: rgb(0, 0, 0),
+      });
+    };
+
+    // 5. Render each sheet layout onto DUPLEX PDF pages (Front & Back)
     for (const sheetLayout of job.result.sheets) {
       const sheetWidthPt = sheetLayout.width_mm * MM_TO_PT;
       const sheetHeightPt = sheetLayout.height_mm * MM_TO_PT;
+      const marginPt = (job.sheet?.margins_mm || 5) * MM_TO_PT;
+      const gripperHeightPt = (job.sheet?.gripper_margin_mm || 15) * MM_TO_PT;
 
-      const page = pdfDoc.addPage([sheetWidthPt, sheetHeightPt]);
+      // ==========================================
+      // --- SIDE 1: FRONT (AWERS) ---
+      // ==========================================
+      const pageFront = pdfDoc.addPage([sheetWidthPt, sheetHeightPt]);
 
-      // Draw Raw Sheet Background (clean white)
-      page.drawRectangle({
+      // Draw Raw Sheet Background
+      pageFront.drawRectangle({
         x: 0,
         y: 0,
         width: sheetWidthPt,
@@ -85,42 +275,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         color: rgb(0.99, 0.99, 0.99),
       });
 
-      // Helper to generate pseudo 1D barcode stripes from text
-      const drawBarcode1D = (
-        targetPage: typeof page,
-        text: string,
-        startX: number,
-        startY: number,
-        barHeight: number,
-        maxBarcodeWidth: number
-      ) => {
-        const hash = Array.from(text).reduce((acc, char, i) => acc + char.charCodeAt(0) * (i + 1), 0);
-        let currentX = startX;
-        const barWidth = 0.85;
-        const totalBars = Math.min(24, Math.floor(maxBarcodeWidth / (barWidth * 1.8)));
-        
-        for (let b = 0; b < totalBars; b++) {
-          const isBlack = (hash * (b + 7) + b * 13) % 3 !== 0;
-          const isThick = isBlack && ((hash + b * 5) % 4 === 0);
-          const w = isThick ? barWidth * 1.8 : barWidth;
-          
-          if (isBlack) {
-            targetPage.drawRectangle({
-              x: currentX,
-              y: startY,
-              width: w,
-              height: barHeight,
-              color: rgb(0, 0, 0),
-            });
-          }
-          currentX += w + barWidth * 0.75;
-          if (currentX > startX + maxBarcodeWidth) break;
-        }
-      };
-
-      // Draw Gripper Margin (leading edge indicator on offset/digital press)
-      const gripperHeightPt = (job.sheet?.gripper_margin_mm || 15) * MM_TO_PT;
-      page.drawRectangle({
+      // Draw Gripper Margin
+      pageFront.drawRectangle({
         x: 0,
         y: 0,
         width: sheetWidthPt,
@@ -130,21 +286,24 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         borderWidth: 0.5,
       });
 
-      page.drawText(`GRIPPER EDGE / LAPKA MASZYNY (${job.sheet?.gripper_margin_mm || 15} mm)`, {
-        x: 15,
-        y: Math.max(4, gripperHeightPt / 2 - 4),
-        size: 8,
-        font: fontHelveticaBold,
-        color: rgb(0.45, 0.5, 0.58),
-      });
+      pageFront.drawText(
+        `GRIPPER EDGE / LAPKA MASZYNY (${job.sheet?.gripper_margin_mm || 15} mm) - FRONT [AWERS]`,
+        {
+          x: 15,
+          y: Math.max(4, gripperHeightPt / 2 - 4),
+          size: 8,
+          font: fontHelveticaBold,
+          color: rgb(0.45, 0.5, 0.58),
+        }
+      );
 
-      // Render barcode tags for each distinct order inside the gripper margin
+      // Render barcode tags for each distinct order in gripper
       const distinctOrders = Array.from(new Set(sheetLayout.placed_items.map((i) => i.order_id)));
-      let tagX = 180;
+      let tagX = 220;
       distinctOrders.forEach((ordId) => {
         if (tagX + 110 < sheetWidthPt - 20) {
-          drawBarcode1D(page, ordId, tagX, 4, 12, 45);
-          page.drawText(ordId, {
+          drawBarcode1D(pageFront, ordId, tagX, 4, 12, 45);
+          pageFront.drawText(ordId, {
             x: tagX + 50,
             y: 8,
             size: 6,
@@ -155,9 +314,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         }
       });
 
-      // Draw Sheet Protective Margins Box
-      const marginPt = (job.sheet?.margins_mm || 5) * MM_TO_PT;
-      page.drawRectangle({
+      // Draw Sheet Margin Box
+      pageFront.drawRectangle({
         x: marginPt,
         y: gripperHeightPt,
         width: sheetWidthPt - marginPt * 2,
@@ -166,54 +324,84 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         borderWidth: 0.5,
       });
 
-      // Distinct pastel color palette for placed items
-      const colorPalette = [
-        rgb(0.88, 0.94, 0.99), // Light sky
-        rgb(0.92, 0.98, 0.92), // Light emerald
-        rgb(0.98, 0.93, 0.99), // Light purple
-        rgb(0.99, 0.96, 0.88), // Light amber
-        rgb(0.99, 0.91, 0.92), // Light rose
-        rgb(0.91, 0.96, 0.99), // Light cyan
-      ];
-
-      // Draw Placed Items (bleed boxes, trim boxes, crop marks, labels, and bleed barcodes)
+      // Render Placed Items on FRONT
       sheetLayout.placed_items.forEach((item, index) => {
-        const itemColor = colorPalette[index % colorPalette.length];
-        const bleedPt = item.bleed_mm * MM_TO_PT;
         const slotType = item.slot_type || 'PRODUCT';
+        const itemXPt = item.x_mm * MM_TO_PT;
+        const itemYPt = sheetHeightPt - (item.y_mm + item.height_with_bleed_mm) * MM_TO_PT;
+        const itemWWithBleedPt = item.width_with_bleed_mm * MM_TO_PT;
+        const itemHWithBleedPt = item.height_with_bleed_mm * MM_TO_PT;
 
-        // Position in PDF coordinates (origin at bottom-left)
-        const trimXPt = item.x_mm * MM_TO_PT;
-        const trimYPt = sheetHeightPt - (item.y_mm + item.trim_height_mm) * MM_TO_PT;
+        const trimXPt = item.trim_box.x1 * MM_TO_PT;
+        const trimYPt = sheetHeightPt - item.trim_box.y2 * MM_TO_PT;
         const trimWidthPt = item.trim_width_mm * MM_TO_PT;
         const trimHeightPt = item.trim_height_mm * MM_TO_PT;
 
-        // Draw Bleed Box (extended)
-        if (item.bleed_mm > 0) {
-          page.drawRectangle({
-            x: trimXPt - bleedPt,
-            y: trimYPt - bleedPt,
-            width: trimWidthPt + bleedPt * 2,
-            height: trimHeightPt + bleedPt * 2,
-            color: slotType === 'ORDER_INFO_PANEL' ? rgb(0.95, 0.96, 0.98) : itemColor,
-            borderColor: rgb(0.7, 0.75, 0.82),
-            borderWidth: 0.5,
-          });
+        if (slotType === 'PRODUCT') {
+          const embedded = embeddedSourcesCache.get(item.pdf_source_url);
 
-          // Slug identification in bottom bleed area (Cut off after guillotine cut)
-          const bleedSlugText = `ORD: ${item.order_id} | ${slotType} #${index + 1}`;
-          page.drawText(bleedSlugText, {
-            x: trimXPt,
-            y: trimYPt - bleedPt + 1.5,
-            size: 4,
+          if (embedded && embedded.front) {
+            // Draw embedded vector source page (Page 1 / Front)
+            pageFront.drawPage(embedded.front, {
+              x: itemXPt,
+              y: itemYPt,
+              width: itemWWithBleedPt,
+              height: itemHWithBleedPt,
+            });
+          } else {
+            // Error Placeholder box
+            pageFront.drawRectangle({
+              x: trimXPt,
+              y: trimYPt,
+              width: trimWidthPt,
+              height: trimHeightPt,
+              color: rgb(0.99, 0.94, 0.94),
+              borderColor: rgb(0.85, 0.2, 0.2),
+              borderWidth: 1,
+            });
+
+            pageFront.drawText('BLAD ZRODLA PDF', {
+              x: trimXPt + 6,
+              y: trimYPt + trimHeightPt - 16,
+              size: 7,
+              font: fontHelveticaBold,
+              color: rgb(0.85, 0.2, 0.2),
+            });
+
+            pageFront.drawText(
+              (embedded?.error || 'Nie udalo sie pobrac pliku zrodlowego').slice(0, 45),
+              {
+                x: trimXPt + 6,
+                y: trimYPt + trimHeightPt - 28,
+                size: 5,
+                font: fontHelvetica,
+                color: rgb(0.4, 0.1, 0.1),
+              }
+            );
+
+            pageFront.drawText(`URL: ${item.pdf_source_url.slice(0, 38)}`, {
+              x: trimXPt + 6,
+              y: trimYPt + 8,
+              size: 4.5,
+              font: fontHelvetica,
+              color: rgb(0.5, 0.2, 0.2),
+            });
+          }
+
+          // Bleed slug info (trimmed after cut)
+          pageFront.drawText(`ORD: ${item.order_id} | #${index + 1}`, {
+            x: itemXPt + 1,
+            y: itemYPt + 1.5,
+            size: 3.8,
             font: fontHelveticaBold,
             color: rgb(0.2, 0.25, 0.35),
           });
-        }
 
-        if (slotType === 'ORDER_INFO_PANEL') {
+          // Draw Netto Crop Marks
+          drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
+        } else if (slotType === 'ORDER_INFO_PANEL') {
           // 1. ORDER_INFO_PANEL
-          page.drawRectangle({
+          pageFront.drawRectangle({
             x: trimXPt,
             y: trimYPt,
             width: trimWidthPt,
@@ -223,14 +411,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             borderWidth: 1.2,
           });
 
-          // CMYK Calibration bar on top
+          // CMYK Calibration bar
           const segW = trimWidthPt / 4;
-          page.drawRectangle({ x: trimXPt, y: trimYPt + trimHeightPt - 6, width: segW, height: 6, color: rgb(0, 0.8, 1) });
-          page.drawRectangle({ x: trimXPt + segW, y: trimYPt + trimHeightPt - 6, width: segW, height: 6, color: rgb(1, 0, 0.8) });
-          page.drawRectangle({ x: trimXPt + segW * 2, y: trimYPt + trimHeightPt - 6, width: segW, height: 6, color: rgb(1, 0.9, 0) });
-          page.drawRectangle({ x: trimXPt + segW * 3, y: trimYPt + trimHeightPt - 6, width: segW, height: 6, color: rgb(0.1, 0.1, 0.1) });
+          pageFront.drawRectangle({ x: trimXPt, y: trimYPt + trimHeightPt - 6, width: segW, height: 6, color: rgb(0, 0.8, 1) });
+          pageFront.drawRectangle({ x: trimXPt + segW, y: trimYPt + trimHeightPt - 6, width: segW, height: 6, color: rgb(1, 0, 0.8) });
+          pageFront.drawRectangle({ x: trimXPt + segW * 2, y: trimYPt + trimHeightPt - 6, width: segW, height: 6, color: rgb(1, 0.9, 0) });
+          pageFront.drawRectangle({ x: trimXPt + segW * 3, y: trimYPt + trimHeightPt - 6, width: segW, height: 6, color: rgb(0.1, 0.1, 0.1) });
 
-          page.drawText('PANEL INFORMACYJNY ZAMOWIENIA', {
+          pageFront.drawText('PANEL INFORMACYJNY ZAMOWIENIA', {
             x: trimXPt + 4,
             y: trimYPt + trimHeightPt - 16,
             size: 7,
@@ -238,7 +426,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             color: rgb(0.05, 0.1, 0.2),
           });
 
-          page.drawText(`Order ID: ${item.order_id} (Naklad: ${item.order_quantity?.toLocaleString() || 0} szt.)`, {
+          pageFront.drawText(`Order ID: ${item.order_id} (Naklad: ${item.order_quantity?.toLocaleString() || 0} szt.)`, {
             x: trimXPt + 4,
             y: trimYPt + trimHeightPt - 26,
             size: 6.5,
@@ -246,7 +434,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             color: rgb(0.1, 0.4, 0.8),
           });
 
-          page.drawText(`Klient: ${item.customer_reference || 'Drukarnia Partnerska'}`, {
+          pageFront.drawText(`Klient: ${item.customer_reference || 'Drukarnia Partnerska'}`, {
             x: trimXPt + 4,
             y: trimYPt + trimHeightPt - 36,
             size: 6,
@@ -254,7 +442,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             color: rgb(0.2, 0.25, 0.35),
           });
 
-          page.drawText(`Plate ID: ${item.plate_id || 'JOB-PLATE'}`, {
+          pageFront.drawText(`Plate ID: ${item.plate_id || 'JOB-PLATE'}`, {
             x: trimXPt + 4,
             y: trimYPt + trimHeightPt - 46,
             size: 6,
@@ -262,16 +450,18 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             color: rgb(0.2, 0.25, 0.35),
           });
 
-          page.drawText(`Spec: ${item.product_specs?.size} | ${item.product_specs?.paper_weight_gsm}g | ${item.product_specs?.finish?.slice(0, 24)}`, {
+          pageFront.drawText(`Spec: ${item.product_specs?.size} | ${item.product_specs?.paper_weight_gsm}g | ${item.product_specs?.finish?.slice(0, 24)}`, {
             x: trimXPt + 4,
             y: trimYPt + trimHeightPt - 56,
             size: 5.5,
             font: fontHelvetica,
             color: rgb(0.3, 0.35, 0.45),
           });
+
+          drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
         } else if (slotType === 'WASTE_SLOT') {
-          // 2. WASTE_SLOT (White with yellow border)
-          page.drawRectangle({
+          // 2. WASTE_SLOT
+          pageFront.drawRectangle({
             x: trimXPt,
             y: trimYPt,
             width: trimWidthPt,
@@ -281,16 +471,18 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             borderWidth: 1.5,
           });
 
-          page.drawText('[ SLOT ODPADU ]', {
+          pageFront.drawText('[ SLOT ODPADU ]', {
             x: trimXPt + trimWidthPt / 2 - 28,
             y: trimYPt + trimHeightPt / 2 - 3,
             size: 7,
             font: fontHelveticaBold,
             color: rgb(0.8, 0.6, 0.05),
           });
+
+          drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
         } else if (slotType === 'NEXT_ORDER_START_MARKER') {
-          // 3. NEXT_ORDER_START_MARKER (Solid yellow, blank/marker)
-          page.drawRectangle({
+          // 3. NEXT_ORDER_START_MARKER
+          pageFront.drawRectangle({
             x: trimXPt,
             y: trimYPt,
             width: trimWidthPt,
@@ -300,16 +492,18 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             borderWidth: 1,
           });
 
-          page.drawText('POLACZENIE ZLECEN', {
+          pageFront.drawText('POLACZENIE ZLECEN', {
             x: trimXPt + trimWidthPt / 2 - 30,
             y: trimYPt + trimHeightPt / 2 - 3,
             size: 6.5,
             font: fontHelveticaBold,
             color: rgb(0.55, 0.4, 0.05),
           });
+
+          drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
         } else if (slotType === 'ORDER_END_MARKER') {
-          // 4. ORDER_END_MARKER (Solid yellow with barcode & label)
-          page.drawRectangle({
+          // 4. ORDER_END_MARKER
+          pageFront.drawRectangle({
             x: trimXPt,
             y: trimYPt,
             width: trimWidthPt,
@@ -319,10 +513,9 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             borderWidth: 1,
           });
 
-          // Draw Barcode on yellow marker
-          drawBarcode1D(page, item.job_label || 'ORDER-END', trimXPt + 8, trimYPt + trimHeightPt - 22, 12, trimWidthPt - 16);
+          drawBarcode1D(pageFront, item.job_label || 'ORDER-END', trimXPt + 8, trimYPt + trimHeightPt - 22, 12, trimWidthPt - 16);
 
-          page.drawText(item.job_label || `Print job ${item.order_index}/${item.total_orders}`, {
+          pageFront.drawText(item.job_label || `Print job ${item.order_index}/${item.total_orders}`, {
             x: trimXPt + 8,
             y: trimYPt + trimHeightPt - 32,
             size: 7,
@@ -330,131 +523,19 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             color: rgb(0, 0, 0),
           });
 
-          page.drawText('ZNACZNIK KONCA ZLECENIA', {
+          pageFront.drawText('ZNACZNIK KONCA ZLECENIA', {
             x: trimXPt + 8,
             y: trimYPt + 6,
             size: 5.5,
             font: fontHelveticaBold,
             color: rgb(0.45, 0.35, 0.05),
           });
-        } else {
-          // 5. PRODUCT (Standard product item box)
-          page.drawRectangle({
-            x: trimXPt,
-            y: trimYPt,
-            width: trimWidthPt,
-            height: trimHeightPt,
-            color: rgb(1, 1, 1),
-            borderColor: rgb(0.2, 0.25, 0.35),
-            borderWidth: 0.75,
-          });
 
-          const title = item.order_id;
-          const sub = `${item.trim_width_mm}x${item.trim_height_mm}mm (Spad ${item.bleed_mm}mm)`;
-          const posText = `#${index + 1}${item.sequence_number ? ` | Str. ${item.sequence_number}` : ''}`;
-
-          const fontSizeTitle = Math.min(9, Math.max(6, trimWidthPt / 18));
-          const fontSizeSub = Math.max(5, fontSizeTitle - 2);
-
-          page.drawText(title, {
-            x: trimXPt + 6,
-            y: trimYPt + trimHeightPt - fontSizeTitle - 6,
-            size: fontSizeTitle,
-            font: fontHelveticaBold,
-            color: rgb(0.1, 0.15, 0.25),
-          });
-
-          page.drawText(sub, {
-            x: trimXPt + 6,
-            y: trimYPt + trimHeightPt - fontSizeTitle - fontSizeSub - 9,
-            size: fontSizeSub,
-            font: fontHelvetica,
-            color: rgb(0.4, 0.45, 0.55),
-          });
-
-          const itemBarcodeWidth = Math.min(80, trimWidthPt - 12);
-          if (trimHeightPt > 35 && itemBarcodeWidth > 30) {
-            drawBarcode1D(page, item.order_id, trimXPt + 6, trimYPt + 18, 10, itemBarcodeWidth);
-            page.drawText(`*${item.order_id}*`, {
-              x: trimXPt + 6,
-              y: trimYPt + 12,
-              size: 5,
-              font: fontHelvetica,
-              color: rgb(0.2, 0.25, 0.35),
-            });
-          }
-
-          page.drawText(posText, {
-            x: trimXPt + 6,
-            y: trimYPt + 4,
-            size: fontSizeSub + 1,
-            font: fontHelveticaBold,
-            color: rgb(0.15, 0.4, 0.7),
-          });
+          drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
         }
-
-        // Corner crop marks (znaki cięcia)
-        const cropLen = 8;
-        const cropOffset = 2;
-
-        // Top-Left crop marks
-        page.drawLine({
-          start: { x: trimXPt, y: trimYPt + trimHeightPt + cropOffset },
-          end: { x: trimXPt, y: trimYPt + trimHeightPt + cropOffset + cropLen },
-          thickness: 0.5,
-          color: rgb(0, 0, 0),
-        });
-        page.drawLine({
-          start: { x: trimXPt - cropOffset - cropLen, y: trimYPt + trimHeightPt },
-          end: { x: trimXPt - cropOffset, y: trimYPt + trimHeightPt },
-          thickness: 0.5,
-          color: rgb(0, 0, 0),
-        });
-
-        // Top-Right crop marks
-        page.drawLine({
-          start: { x: trimXPt + trimWidthPt, y: trimYPt + trimHeightPt + cropOffset },
-          end: { x: trimXPt + trimWidthPt, y: trimYPt + trimHeightPt + cropOffset + cropLen },
-          thickness: 0.5,
-          color: rgb(0, 0, 0),
-        });
-        page.drawLine({
-          start: { x: trimXPt + trimWidthPt + cropOffset, y: trimYPt + trimHeightPt },
-          end: { x: trimXPt + trimWidthPt + cropOffset + cropLen, y: trimYPt + trimHeightPt },
-          thickness: 0.5,
-          color: rgb(0, 0, 0),
-        });
-
-        // Bottom-Left crop marks
-        page.drawLine({
-          start: { x: trimXPt, y: trimYPt - cropOffset - cropLen },
-          end: { x: trimXPt, y: trimYPt - cropOffset },
-          thickness: 0.5,
-          color: rgb(0, 0, 0),
-        });
-        page.drawLine({
-          start: { x: trimXPt - cropOffset - cropLen, y: trimYPt },
-          end: { x: trimXPt - cropOffset, y: trimYPt },
-          thickness: 0.5,
-          color: rgb(0, 0, 0),
-        });
-
-        // Bottom-Right crop marks
-        page.drawLine({
-          start: { x: trimXPt + trimWidthPt, y: trimYPt - cropOffset - cropLen },
-          end: { x: trimXPt + trimWidthPt, y: trimYPt - cropOffset },
-          thickness: 0.5,
-          color: rgb(0, 0, 0),
-        });
-        page.drawLine({
-          start: { x: trimXPt + trimWidthPt + cropOffset, y: trimYPt },
-          end: { x: trimXPt + trimWidthPt + cropOffset + cropLen, y: trimYPt },
-          thickness: 0.5,
-          color: rgb(0, 0, 0),
-        });
       });
 
-      // Draw Cut Lines (Gilotyna)
+      // Draw Cut Lines on Front
       if (sheetLayout.cut_lines && sheetLayout.cut_lines.length > 0) {
         sheetLayout.cut_lines.forEach((cut) => {
           const startX = cut.start_mm.x * MM_TO_PT;
@@ -462,7 +543,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           const endX = cut.end_mm.x * MM_TO_PT;
           const endY = sheetHeightPt - cut.end_mm.y * MM_TO_PT;
 
-          page.drawLine({
+          pageFront.drawLine({
             start: { x: startX, y: startY },
             end: { x: endX, y: endY },
             thickness: 0.5,
@@ -471,15 +552,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         });
       }
 
-      // Draw Optical Marks (CNC Plotter pasery / registration dots)
+      // Draw Optical Marks on Front
       if (sheetLayout.optical_marks && sheetLayout.optical_marks.length > 0) {
         sheetLayout.optical_marks.forEach((mark) => {
           const markX = mark.x_mm * MM_TO_PT;
           const markY = sheetHeightPt - mark.y_mm * MM_TO_PT;
           const radiusPt = (mark.radius_mm || 2.5) * MM_TO_PT;
 
-          // Outer circle
-          page.drawCircle({
+          pageFront.drawCircle({
             x: markX,
             y: markY,
             size: radiusPt,
@@ -487,22 +567,21 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             borderWidth: 0.75,
           });
 
-          // Inner dot or crosshair
           if (mark.type === 'CROSSHAIR') {
-            page.drawLine({
+            pageFront.drawLine({
               start: { x: markX - radiusPt * 1.4, y: markY },
               end: { x: markX + radiusPt * 1.4, y: markY },
               thickness: 0.5,
               color: rgb(0, 0, 0),
             });
-            page.drawLine({
+            pageFront.drawLine({
               start: { x: markX, y: markY - radiusPt * 1.4 },
               end: { x: markX, y: markY + radiusPt * 1.4 },
               thickness: 0.5,
               color: rgb(0, 0, 0),
             });
           } else {
-            page.drawCircle({
+            pageFront.drawCircle({
               x: markX,
               y: markY,
               size: radiusPt * 0.4,
@@ -512,9 +591,229 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         });
       }
 
-      // Info Slug Header Line at Top Margin
-      const slugText = `POD IMPOSITION | Job ID: ${job.id} | Workflow: ${job.workflow} | Device: ${job.device_type} | Standard: ${job.pdf_standard} | Sheet: ${sheetLayout.sheet_name} | Yield: ${sheetLayout.sheet_yield_percentage}%`;
-      page.drawText(slugText, {
+      // Front Header Slug
+      const slugTextFront = `POD IMPOSITION | Job ID: ${job.id} | Workflow: ${job.workflow} | ${sheetLayout.sheet_name} [FRONT / AWERS] | Yield: ${sheetLayout.sheet_yield_percentage}%`;
+      pageFront.drawText(slugTextFront, {
+        x: marginPt,
+        y: sheetHeightPt - marginPt / 2 - 3,
+        size: 7,
+        font: fontHelvetica,
+        color: rgb(0.3, 0.35, 0.45),
+      });
+
+      // ==========================================
+      // --- SIDE 2: BACK (REWERS / DUPLEX) ---
+      // ==========================================
+      const pageBack = pdfDoc.addPage([sheetWidthPt, sheetHeightPt]);
+
+      // Raw Sheet Background
+      pageBack.drawRectangle({
+        x: 0,
+        y: 0,
+        width: sheetWidthPt,
+        height: sheetHeightPt,
+        color: rgb(0.99, 0.99, 0.99),
+      });
+
+      // Gripper Margin on Back
+      pageBack.drawRectangle({
+        x: 0,
+        y: 0,
+        width: sheetWidthPt,
+        height: gripperHeightPt,
+        color: rgb(0.93, 0.94, 0.96),
+        borderColor: rgb(0.8, 0.83, 0.88),
+        borderWidth: 0.5,
+      });
+
+      pageBack.drawText(
+        `GRIPPER EDGE / LAPKA MASZYNY (${job.sheet?.gripper_margin_mm || 15} mm) - BACK [REWERS]`,
+        {
+          x: 15,
+          y: Math.max(4, gripperHeightPt / 2 - 4),
+          size: 8,
+          font: fontHelveticaBold,
+          color: rgb(0.45, 0.5, 0.58),
+        }
+      );
+
+      // Sheet Margin Box on Back
+      pageBack.drawRectangle({
+        x: marginPt,
+        y: gripperHeightPt,
+        width: sheetWidthPt - marginPt * 2,
+        height: sheetHeightPt - gripperHeightPt - marginPt,
+        borderColor: rgb(0.85, 0.88, 0.92),
+        borderWidth: 0.5,
+      });
+
+      // Render Placed Items on BACK (Horizontally Mirrored for Work & Turn duplex registration)
+      sheetLayout.placed_items.forEach((item, index) => {
+        const slotType = item.slot_type || 'PRODUCT';
+
+        // Mirrored X for Duplex sheetwise / work & turn
+        const backX_mm = sheetLayout.width_mm - (item.x_mm + item.width_with_bleed_mm);
+        const backItemXPt = backX_mm * MM_TO_PT;
+        const itemYPt = sheetHeightPt - (item.y_mm + item.height_with_bleed_mm) * MM_TO_PT;
+        const itemWWithBleedPt = item.width_with_bleed_mm * MM_TO_PT;
+        const itemHWithBleedPt = item.height_with_bleed_mm * MM_TO_PT;
+
+        const backTrimX_mm = sheetLayout.width_mm - item.trim_box.x2;
+        const backTrimXPt = backTrimX_mm * MM_TO_PT;
+        const trimYPt = sheetHeightPt - item.trim_box.y2 * MM_TO_PT;
+        const trimWidthPt = item.trim_width_mm * MM_TO_PT;
+        const trimHeightPt = item.trim_height_mm * MM_TO_PT;
+
+        if (slotType === 'PRODUCT') {
+          const embedded = embeddedSourcesCache.get(item.pdf_source_url);
+
+          if (embedded && embedded.back) {
+            // Draw embedded vector source page (Page 2 / Back)
+            pageBack.drawPage(embedded.back, {
+              x: backItemXPt,
+              y: itemYPt,
+              width: itemWWithBleedPt,
+              height: itemHWithBleedPt,
+            });
+          } else {
+            pageBack.drawRectangle({
+              x: backTrimXPt,
+              y: trimYPt,
+              width: trimWidthPt,
+              height: trimHeightPt,
+              color: rgb(0.99, 0.94, 0.94),
+              borderColor: rgb(0.85, 0.2, 0.2),
+              borderWidth: 1,
+            });
+
+            pageBack.drawText('BLAD ZRODLA PDF (REWERS)', {
+              x: backTrimXPt + 6,
+              y: trimYPt + trimHeightPt - 16,
+              size: 7,
+              font: fontHelveticaBold,
+              color: rgb(0.85, 0.2, 0.2),
+            });
+          }
+
+          // Bleed slug info
+          pageBack.drawText(`ORD: ${item.order_id} | #${index + 1} [REWERS]`, {
+            x: backItemXPt + 1,
+            y: itemYPt + 1.5,
+            size: 3.8,
+            font: fontHelveticaBold,
+            color: rgb(0.2, 0.25, 0.35),
+          });
+
+          drawCropMarks(pageBack, backTrimXPt, trimYPt, trimWidthPt, trimHeightPt);
+        } else if (slotType === 'ORDER_INFO_PANEL') {
+          // Info panel back side
+          pageBack.drawRectangle({
+            x: backTrimXPt,
+            y: trimYPt,
+            width: trimWidthPt,
+            height: trimHeightPt,
+            color: rgb(0.98, 0.98, 0.98),
+            borderColor: rgb(0.7, 0.75, 0.8),
+            borderWidth: 0.75,
+          });
+
+          pageBack.drawText('PANEL INFORMACYJNY (REWERS)', {
+            x: backTrimXPt + 6,
+            y: trimYPt + trimHeightPt / 2,
+            size: 6,
+            font: fontHelveticaBold,
+            color: rgb(0.4, 0.45, 0.55),
+          });
+
+          drawCropMarks(pageBack, backTrimXPt, trimYPt, trimWidthPt, trimHeightPt);
+        } else if (slotType === 'WASTE_SLOT') {
+          pageBack.drawRectangle({
+            x: backTrimXPt,
+            y: trimYPt,
+            width: trimWidthPt,
+            height: trimHeightPt,
+            color: rgb(1, 1, 1),
+            borderColor: rgb(0.95, 0.75, 0.1),
+            borderWidth: 1.5,
+          });
+
+          pageBack.drawText('[ SLOT ODPADU - REWERS ]', {
+            x: backTrimXPt + trimWidthPt / 2 - 35,
+            y: trimYPt + trimHeightPt / 2 - 3,
+            size: 6.5,
+            font: fontHelveticaBold,
+            color: rgb(0.8, 0.6, 0.05),
+          });
+
+          drawCropMarks(pageBack, backTrimXPt, trimYPt, trimWidthPt, trimHeightPt);
+        } else if (slotType === 'NEXT_ORDER_START_MARKER') {
+          pageBack.drawRectangle({
+            x: backTrimXPt,
+            y: trimYPt,
+            width: trimWidthPt,
+            height: trimHeightPt,
+            color: rgb(1, 0.9, 0.2),
+            borderColor: rgb(0.85, 0.65, 0.05),
+            borderWidth: 1,
+          });
+
+          pageBack.drawText('POLACZENIE ZLECEN (REWERS)', {
+            x: backTrimXPt + trimWidthPt / 2 - 40,
+            y: trimYPt + trimHeightPt / 2 - 3,
+            size: 6,
+            font: fontHelveticaBold,
+            color: rgb(0.55, 0.4, 0.05),
+          });
+
+          drawCropMarks(pageBack, backTrimXPt, trimYPt, trimWidthPt, trimHeightPt);
+        } else if (slotType === 'ORDER_END_MARKER') {
+          pageBack.drawRectangle({
+            x: backTrimXPt,
+            y: trimYPt,
+            width: trimWidthPt,
+            height: trimHeightPt,
+            color: rgb(1, 0.9, 0.2),
+            borderColor: rgb(0.85, 0.65, 0.05),
+            borderWidth: 1,
+          });
+
+          drawBarcode1D(pageBack, item.job_label || 'ORDER-END', backTrimXPt + 8, trimYPt + trimHeightPt - 22, 12, trimWidthPt - 16);
+
+          pageBack.drawText(`${item.job_label || `Print job ${item.order_index}/${item.total_orders}`} [REWERS]`, {
+            x: backTrimXPt + 8,
+            y: trimYPt + trimHeightPt - 32,
+            size: 6.5,
+            font: fontHelveticaBold,
+            color: rgb(0, 0, 0),
+          });
+
+          drawCropMarks(pageBack, backTrimXPt, trimYPt, trimWidthPt, trimHeightPt);
+        }
+      });
+
+      // Mirrored Cut lines on Back
+      if (sheetLayout.cut_lines && sheetLayout.cut_lines.length > 0) {
+        sheetLayout.cut_lines.forEach((cut) => {
+          const backStartX_mm = cut.type === 'VERTICAL' ? sheetLayout.width_mm - cut.start_mm.x : cut.start_mm.x;
+          const backEndX_mm = cut.type === 'VERTICAL' ? sheetLayout.width_mm - cut.end_mm.x : cut.end_mm.x;
+
+          const startX = backStartX_mm * MM_TO_PT;
+          const startY = sheetHeightPt - cut.start_mm.y * MM_TO_PT;
+          const endX = backEndX_mm * MM_TO_PT;
+          const endY = sheetHeightPt - cut.end_mm.y * MM_TO_PT;
+
+          pageBack.drawLine({
+            start: { x: startX, y: startY },
+            end: { x: endX, y: endY },
+            thickness: 0.5,
+            color: rgb(0.85, 0.2, 0.2),
+          });
+        });
+      }
+
+      // Back Header Slug
+      const slugTextBack = `POD IMPOSITION | Job ID: ${job.id} | Workflow: ${job.workflow} | ${sheetLayout.sheet_name} [BACK / REWERS] | Yield: ${sheetLayout.sheet_yield_percentage}%`;
+      pageBack.drawText(slugTextBack, {
         x: marginPt,
         y: sheetHeightPt - marginPt / 2 - 3,
         size: 7,
@@ -523,6 +822,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       });
     }
 
+    // 6. Serialize and stream final PDF
     const pdfBytes = await pdfDoc.save();
 
     return new NextResponse(Buffer.from(pdfBytes), {
@@ -546,3 +846,4 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     );
   }
 }
+

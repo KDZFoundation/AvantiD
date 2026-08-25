@@ -6,8 +6,8 @@ export const OrderItemSchema = z.object({
     .string()
     .min(1, 'pdf_source_url cannot be empty')
     .refine(
-      (val) => val.startsWith('http://') || val.startsWith('https://') || val.startsWith('/api/files/') || val.startsWith('data:'),
-      { message: 'pdf_source_url must be a valid URL (https://, http://, or uploaded file /api/files/...)' }
+      (val) => val.startsWith('http://') || val.startsWith('https://') || val.startsWith('/') || val.startsWith('data:'),
+      { message: 'pdf_source_url must be a valid URL (https://, http://, or local path /...)' }
     ),
   trim_width_mm: z
     .number()
@@ -27,9 +27,6 @@ export const OrderItemSchema = z.object({
     .int('quantity must be an integer')
     .positive('quantity must be at least 1')
     .max(10000000, 'quantity cannot exceed 10,000,000'),
-  customer_reference: z.string().optional(),
-  paper_weight_gsm: z.number().positive().optional(),
-  paper_finish: z.string().optional(),
   custom_label: z.string().optional(),
   priority: z.number().int().optional(),
 });
@@ -66,9 +63,11 @@ export const ImpositionJobPayloadSchema = z.object({
   device_type: z.enum(['GUILLOTINE', 'CNC_PLOTTER'], {
     message: "device_type must be either 'GUILLOTINE' or 'CNC_PLOTTER'",
   }),
-  pdf_standard: z.enum(['PDF/X-4', 'PDF/X-1a'], {
-    message: "pdf_standard must be either 'PDF/X-4' or 'PDF/X-1a'",
-  }),
+  pdf_standard: z
+    .enum(['PDF/X-4', 'PDF/X-1a'], {
+      message: "pdf_standard must be either 'PDF/X-4' or 'PDF/X-1a'",
+    })
+    .default('PDF/X-4'),
   sheet: SheetConfigSchema,
   orders: z
     .array(OrderItemSchema)
