@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKey } from '@/lib/auth';
-import { adminDb } from '@/lib/firebase-admin';
+import { getJobFromStore, updateJobInStore } from '@/lib/job-store';
 import { ImpositionJob } from '@/types/imposition';
 
 interface RouteParams {
@@ -31,10 +31,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   }
 
   try {
-    const docRef = adminDb.collection('imposition_jobs').doc(id);
-    const snap = await docRef.get();
+    const job = await getJobFromStore(id);
 
-    if (!snap.exists) {
+    if (!job) {
       return NextResponse.json(
         {
           error: 'Not Found',
@@ -44,8 +43,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         { status: 404 }
       );
     }
-
-    const job = snap.data() as ImpositionJob;
 
     if (job.status === 'COMPLETED') {
       return NextResponse.json(
@@ -71,7 +68,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
 
     const nowIso = new Date().toISOString();
-    await docRef.update({
+    await updateJobInStore(id, {
       status: 'CANCELLED',
       updated_at: nowIso,
       completed_at: nowIso,

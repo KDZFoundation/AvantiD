@@ -3,6 +3,7 @@ import {
   JobResult,
   SheetLayout,
   PlacedItem,
+  PlacedItemSlotType,
   CutLine,
   OpticalMark,
   WorkflowDetails,

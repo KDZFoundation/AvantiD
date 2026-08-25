@@ -88,7 +88,7 @@ export const JobsListTable: React.FC<JobsListTableProps> = ({
       if (!ignore) {
         loadData();
       }
-    }, 5000);
+    }, 15000);
 
     return () => {
       ignore = true;
