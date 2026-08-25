@@ -40,6 +40,8 @@ export const JobSubmitForm: React.FC<JobSubmitFormProps> = ({ onJobSubmitted }) 
   const [gripperMargin, setGripperMargin] = useState<number>(PRESETS[0].payload.sheet.gripper_margin_mm);
   const [orders, setOrders] = useState<OrderItem[]>(PRESETS[0].payload.orders);
 
+  const selectedPreset = PRESETS.find((p) => p.id === selectedPresetId);
+
   // Raw JSON state
   const [rawJsonText, setRawJsonText] = useState<string>(
     JSON.stringify(PRESETS[0].payload, null, 2)
@@ -65,10 +67,12 @@ export const JobSubmitForm: React.FC<JobSubmitFormProps> = ({ onJobSubmitted }) 
       return JSON.parse(rawJsonText);
     }
     return {
+      name: selectedPreset?.payload.name || (mode === 'visual' ? `Zlecenie ${workflow} (${orders.map(o => o.order_id).join(', ')})` : undefined),
       workflow,
       device_type: deviceType,
       pdf_standard: pdfStandard,
       sheet: {
+        name: selectedPreset?.payload.sheet.name,
         width_mm: Number(sheetWidth),
         height_mm: Number(sheetHeight),
         margins_mm: Number(sheetMargins),
@@ -95,6 +99,7 @@ export const JobSubmitForm: React.FC<JobSubmitFormProps> = ({ onJobSubmitted }) 
 
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
+        'x-pod-test-panel': 'true',
       };
       if (apiKey.trim()) {
         headers['X-API-Key'] = apiKey.trim();
@@ -462,13 +467,6 @@ export const JobSubmitForm: React.FC<JobSubmitFormProps> = ({ onJobSubmitted }) 
                           value={ord.custom_label || ''}
                           onChange={(e) => updateOrderItem(idx, 'custom_label', e.target.value)}
                           className="text-xs text-neutral-700 dark:text-neutral-300 bg-neutral-50 dark:bg-neutral-800/60 rounded px-2.5 py-1 border border-neutral-200 dark:border-neutral-700 flex-1"
-                        />
-                        <input
-                          type="text"
-                          placeholder="Klient / Zamawiający"
-                          value={ord.customer_reference || ''}
-                          onChange={(e) => updateOrderItem(idx, 'customer_reference', e.target.value)}
-                          className="text-xs text-sky-700 dark:text-sky-300 bg-sky-50/50 dark:bg-sky-950/30 rounded px-2.5 py-1 border border-sky-200 dark:border-sky-800/60 w-44"
                         />
                       </div>
                       {orders.length > 1 && (

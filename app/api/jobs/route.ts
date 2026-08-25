@@ -140,19 +140,28 @@ export async function GET(req: NextRequest) {
   const limitParam = parseInt(searchParams.get('limit') || '50', 10);
 
   try {
-    let query = adminDb.collection('imposition_jobs').limit(limitParam);
+    let query: FirebaseFirestore.Query = adminDb.collection('imposition_jobs');
 
     if (statusFilter && statusFilter !== 'ALL') {
-      query = adminDb.collection('imposition_jobs').where('status', '==', statusFilter).limit(limitParam);
+      query = query.where('status', '==', statusFilter);
     }
     if (workflowFilter && workflowFilter !== 'ALL') {
-      query = (statusFilter && statusFilter !== 'ALL'
-        ? adminDb.collection('imposition_jobs').where('status', '==', statusFilter).where('workflow', '==', workflowFilter)
-        : adminDb.collection('imposition_jobs').where('workflow', '==', workflowFilter)
-      ).limit(limitParam);
+      query = query.where('workflow', '==', workflowFilter);
     }
 
-    const snapshot = await query.get();
+    try {
+      query = query.orderBy('created_at', 'desc').limit(limitParam);
+    } catch {
+      query = query.limit(limitParam);
+    }
+
+    let snapshot: FirebaseFirestore.QuerySnapshot;
+    try {
+      snapshot = await query.get();
+    } catch {
+      // Fallback query if composite index is pending
+      snapshot = await adminDb.collection('imposition_jobs').limit(limitParam).get();
+    }
     const jobs: ImpositionJob[] = [];
 
     snapshot.forEach((doc) => {
