@@ -175,13 +175,6 @@ export const SheetVisualizer: React.FC<SheetVisualizerProps> = ({
                 <rect width="10" height="10" fill="#f3f4f6" />
                 <circle cx="5" cy="5" r="0.8" fill="#d1d5db" />
               </pattern>
-              {/* CMYK Checkerboard Calibration Pattern for Info Panel Border */}
-              <pattern id="cmykChecker" width="12" height="4" patternUnits="userSpaceOnUse">
-                <rect x="0" y="0" width="3" height="4" fill="#06b6d4" />
-                <rect x="3" y="0" width="3" height="4" fill="#ec4899" />
-                <rect x="6" y="0" width="3" height="4" fill="#eab308" />
-                <rect x="9" y="0" width="3" height="4" fill="#0f172a" />
-              </pattern>
             </defs>
 
             {/* Base paper sheet */}
@@ -214,16 +207,11 @@ export const SheetVisualizer: React.FC<SheetVisualizerProps> = ({
               <text x="145" y="3.5" fill="#374151" fontSize="4.5" fontFamily="monospace">CMYK POD CALIBRATION</text>
             </g>
 
-            {/* Placed Items with GANGING Boundary Markers & Info Panels */}
+            {/* Placed Items */}
             {sheet.placed_items.map((item) => {
               const isSelected = selectedItemId === item.instance_id;
+              const color = getOrderColor(item.order_id);
               const slotType = item.slot_type || 'PRODUCT';
-
-              // Dimensions
-              const trimX = item.trim_box.x1;
-              const trimY = item.trim_box.y1;
-              const trimW = item.trim_width_mm;
-              const trimH = item.trim_height_mm;
 
               return (
                 <g
@@ -238,7 +226,7 @@ export const SheetVisualizer: React.FC<SheetVisualizerProps> = ({
                       y={item.y_mm}
                       width={item.width_with_bleed_mm}
                       height={item.height_with_bleed_mm}
-                      fill={isSelected ? '#fef08a' : slotType === 'WASTE_SLOT' ? '#fefce8' : '#e0f2fe'}
+                      fill={isSelected ? '#fef08a' : slotType === 'ORDER_INFO_PANEL' ? '#f1f5f9' : '#e0f2fe'}
                       stroke={isSelected ? '#ca8a04' : '#38bdf8'}
                       strokeWidth={isSelected ? 1.5 : 0.6}
                       strokeDasharray="2 2"
@@ -246,158 +234,166 @@ export const SheetVisualizer: React.FC<SheetVisualizerProps> = ({
                     />
                   )}
 
-                  {/* 1. ORDER_INFO_PANEL - CMYK checkerboard border + comprehensive order info */}
+                  {/* Render based on slot_type */}
                   {slotType === 'ORDER_INFO_PANEL' && (
                     <g>
-                      {/* CMYK Calibration border frame */}
+                      {/* Chessboard / CMYK calibration pattern background */}
                       <rect
-                        x={trimX}
-                        y={trimY}
-                        width={trimW}
-                        height={trimH}
-                        fill="url(#cmykChecker)"
-                        stroke="#0f172a"
-                        strokeWidth="0.8"
-                        rx="1"
-                      />
-                      {/* Inner clean white card with padding */}
-                      <rect
-                        x={trimX + 2.5}
-                        y={trimY + 2.5}
-                        width={Math.max(10, trimW - 5)}
-                        height={Math.max(10, trimH - 5)}
+                        x={item.trim_box.x1}
+                        y={item.trim_box.y1}
+                        width={item.trim_width_mm}
+                        height={item.trim_height_mm}
                         fill="#ffffff"
-                        stroke="#e2e8f0"
-                        strokeWidth="0.5"
-                        rx="1"
+                        stroke="#0f172a"
+                        strokeWidth="1.5"
                       />
-
+                      {/* Top CMYK calibration strip */}
+                      <rect x={item.trim_box.x1 + 1} y={item.trim_box.y1 + 1} width={item.trim_width_mm - 2} height="3" fill="#0284c7" />
+                      <rect x={item.trim_box.x1 + 1 + (item.trim_width_mm - 2) * 0.25} y={item.trim_box.y1 + 1} width={(item.trim_width_mm - 2) * 0.25} height="3" fill="#ec4899" />
+                      <rect x={item.trim_box.x1 + 1 + (item.trim_width_mm - 2) * 0.5} y={item.trim_box.y1 + 1} width={(item.trim_width_mm - 2) * 0.25} height="3" fill="#eab308" />
+                      <rect x={item.trim_box.x1 + 1 + (item.trim_width_mm - 2) * 0.75} y={item.trim_box.y1 + 1} width={(item.trim_width_mm - 2) * 0.25} height="3" fill="#0f172a" />
+                      
                       {showLabels && (
-                        <g pointerEvents="none">
-                          {/* CMYK Header badge */}
-                          <g transform={`translate(${trimX + 5}, ${trimY + 5})`}>
-                            <rect x="0" y="0" width={Math.max(20, trimW - 10)} height="5.5" fill="#0f172a" rx="0.8" />
-                            <circle cx="3" cy="2.75" r="1" fill="#06b6d4" />
-                            <circle cx="5.5" cy="2.75" r="1" fill="#ec4899" />
-                            <circle cx="8" cy="2.75" r="1" fill="#eab308" />
-                            <circle cx="10.5" cy="2.75" r="1" fill="#ffffff" />
-                            <text x="13.5" y="4" fill="#ffffff" fontSize="3.2" fontWeight="bold" fontFamily="sans-serif">
-                              PANEL INFORMACYJNY ZAMÓWIENIA
-                            </text>
-                          </g>
-
-                          {/* Data rows */}
-                          <text x={trimX + 5} y={trimY + 14} fill="#0f172a" fontSize="4.2" fontWeight="bold" fontFamily="sans-serif">
-                            {item.order_id}
+                        <g pointerEvents="none" className="font-sans">
+                          <text x={item.trim_box.x1 + 4} y={item.trim_box.y1 + 10} fill="#0f172a" fontSize="5.5" fontWeight="bold">
+                            PANEL INFORMACYJNY ZAMÓWIENIA
                           </text>
-
-                          <text x={trimX + 5} y={trimY + 20} fill="#0284c7" fontSize="3.6" fontWeight="bold" fontFamily="sans-serif">
+                          <text x={item.trim_box.x1 + 4} y={item.trim_box.y1 + 17} fill="#0369a1" fontSize="5" fontWeight="bold">
+                            ID: {item.order_id} ({item.order_quantity?.toLocaleString() || 0} szt.)
+                          </text>
+                          <text x={item.trim_box.x1 + 4} y={item.trim_box.y1 + 23} fill="#475569" fontSize="4.2">
                             Klient: {item.customer_reference || 'Drukarnia Partnerska'}
                           </text>
-
-                          <text x={trimX + 5} y={trimY + 25.5} fill="#15803d" fontSize="3.6" fontWeight="bold" fontFamily="sans-serif">
-                            Nakład: {item.order_quantity ? `${item.order_quantity.toLocaleString()} szt.` : '10,000 szt.'}
+                          <text x={item.trim_box.x1 + 4} y={item.trim_box.y1 + 29} fill="#475569" fontSize="4.2">
+                            Plate: {item.plate_id || 'JOB-PLATE'}
                           </text>
-
-                          <text x={trimX + 5} y={trimY + 31} fill="#64748b" fontSize="3.2" fontFamily="monospace">
-                            Plate ID: {item.plate_id || 'JOB-GANGING-PLATE'}
-                          </text>
-
-                          <text x={trimX + 5} y={trimY + 36} fill="#475569" fontSize="3.0" fontFamily="sans-serif">
-                            Spec: {item.product_specs?.size || `${item.trim_width_mm}×${item.trim_height_mm}mm`} | {item.product_specs?.paper_weight_gsm || 350}g
+                          <text x={item.trim_box.x1 + 4} y={item.trim_box.y1 + 35} fill="#475569" fontSize="4">
+                            Spec: {item.product_specs?.size} | {item.product_specs?.paper_weight_gsm}g | {item.product_specs?.finish?.slice(0, 18)}
                           </text>
                         </g>
                       )}
                     </g>
                   )}
 
-                  {/* 2. WASTE_SLOT - White block with yellow border (representing real surplus unutilized material) */}
                   {slotType === 'WASTE_SLOT' && (
                     <g>
+                      {/* White fill with thick yellow border */}
                       <rect
-                        x={trimX}
-                        y={trimY}
-                        width={trimW}
-                        height={trimH}
+                        x={item.trim_box.x1}
+                        y={item.trim_box.y1}
+                        width={item.trim_width_mm}
+                        height={item.trim_height_mm}
                         fill="#ffffff"
                         stroke="#eab308"
-                        strokeWidth="1.6"
-                        strokeDasharray="3 2"
-                        rx="1"
+                        strokeWidth="1.8"
                       />
                       {showLabels && (
                         <g pointerEvents="none">
-                          <g transform={`translate(${trimX + trimW / 2 - 18}, ${trimY + trimH / 2 - 4})`}>
-                            <rect x="0" y="0" width="36" height="8" fill="#fef9c3" stroke="#ca8a04" strokeWidth="0.6" rx="1" />
-                            <text x="18" y="5.5" fill="#854d0e" fontSize="3.6" fontWeight="bold" textAnchor="middle" fontFamily="sans-serif">
-                              ODPAD / WASTE
-                            </text>
-                          </g>
+                          <text
+                            x={item.trim_box.x1 + item.trim_width_mm / 2}
+                            y={item.trim_box.y1 + item.trim_height_mm / 2}
+                            fill="#ca8a04"
+                            fontSize="5.5"
+                            fontWeight="bold"
+                            textAnchor="middle"
+                            fontFamily="monospace"
+                          >
+                            [ SLOT ODPADU ]
+                          </text>
                         </g>
                       )}
                     </g>
                   )}
 
-                  {/* 3. NEXT_ORDER_START_MARKER - Solid yellow background, completely blank without text or barcode */}
                   {slotType === 'NEXT_ORDER_START_MARKER' && (
                     <g>
+                      {/* Solid yellow background, blank */}
                       <rect
-                        x={trimX}
-                        y={trimY}
-                        width={trimW}
-                        height={trimH}
+                        x={item.trim_box.x1}
+                        y={item.trim_box.y1}
+                        width={item.trim_width_mm}
+                        height={item.trim_height_mm}
                         fill="#facc15"
                         stroke="#ca8a04"
                         strokeWidth="1.2"
-                        rx="1"
                       />
+                      {showLabels && (
+                        <text
+                          x={item.trim_box.x1 + item.trim_width_mm / 2}
+                          y={item.trim_box.y1 + item.trim_height_mm / 2}
+                          fill="#854d0e"
+                          fontSize="4.5"
+                          fontWeight="bold"
+                          textAnchor="middle"
+                          fontFamily="sans-serif"
+                        >
+                          POŁĄCZENIE ZLECEŃ (MARKER)
+                        </text>
+                      )}
                     </g>
                   )}
 
-                  {/* 4. ORDER_END_MARKER - Solid yellow background + 1D Barcode placeholder + "Print job {n}/{total}" */}
                   {slotType === 'ORDER_END_MARKER' && (
                     <g>
+                      {/* Solid yellow background with barcode & Print job label */}
                       <rect
-                        x={trimX}
-                        y={trimY}
-                        width={trimW}
-                        height={trimH}
+                        x={item.trim_box.x1}
+                        y={item.trim_box.y1}
+                        width={item.trim_width_mm}
+                        height={item.trim_height_mm}
                         fill="#facc15"
                         stroke="#ca8a04"
                         strokeWidth="1.2"
-                        rx="1"
                       />
+                      {/* Simulated barcode */}
+                      <g transform={`translate(${item.trim_box.x1 + 6}, ${item.trim_box.y1 + 8})`}>
+                        {Array.from({ length: 18 }).map((_, bIdx) => (
+                          <rect
+                            key={bIdx}
+                            x={bIdx * (item.trim_width_mm - 12) / 18}
+                            y="0"
+                            width={bIdx % 3 === 0 ? 2 : 1}
+                            height="10"
+                            fill="#000000"
+                          />
+                        ))}
+                      </g>
                       {showLabels && (
                         <g pointerEvents="none">
-                          {/* Barcode SVG placeholder */}
-                          <g transform={`translate(${trimX + trimW / 2 - 22}, ${trimY + trimH / 2 - 10})`}>
-                            <rect x="0" y="0" width="44" height="12" fill="#ffffff" rx="0.5" />
-                            {/* Barcode stripes */}
-                            {[0, 3, 5, 8, 10, 12, 16, 18, 22, 25, 27, 30, 34, 36, 39, 41].map((bx, bIdx) => (
-                              <rect key={bx} x={bx + 1.5} y="1.5" width={bIdx % 2 === 0 ? "1.5" : "0.8"} height="9" fill="#000000" />
-                            ))}
-                          </g>
-
-                          {/* Print job n/total badge */}
-                          <g transform={`translate(${trimX + trimW / 2 - 20}, ${trimY + trimH / 2 + 4})`}>
-                            <rect x="0" y="0" width="40" height="6.5" fill="#0f172a" rx="1" />
-                            <text x="20" y="4.5" fill="#facc15" fontSize="3.6" fontWeight="bold" textAnchor="middle" fontFamily="sans-serif">
-                              {item.job_label || `Print job ${item.order_index || 1}/${item.total_orders || 1}`}
-                            </text>
-                          </g>
+                          <text
+                            x={item.trim_box.x1 + item.trim_width_mm / 2}
+                            y={item.trim_box.y1 + 25}
+                            fill="#000000"
+                            fontSize="5.5"
+                            fontWeight="bold"
+                            textAnchor="middle"
+                            fontFamily="monospace"
+                          >
+                            {item.job_label || `Print job ${item.order_index}/${item.total_orders}`}
+                          </text>
+                          <text
+                            x={item.trim_box.x1 + item.trim_width_mm / 2}
+                            y={item.trim_box.y1 + 32}
+                            fill="#713f12"
+                            fontSize="4.5"
+                            textAnchor="middle"
+                            fontFamily="sans-serif"
+                          >
+                            ZNACZNIK KOŃCA ZLECENIA
+                          </text>
                         </g>
                       )}
                     </g>
                   )}
 
-                  {/* 5. PRODUCT - Regular product item */}
                   {slotType === 'PRODUCT' && (
                     <g>
+                      {/* Trim box (the actual cut final product size) */}
                       <rect
-                        x={trimX}
-                        y={trimY}
-                        width={trimW}
-                        height={trimH}
+                        x={item.trim_box.x1}
+                        y={item.trim_box.y1}
+                        width={item.trim_width_mm}
+                        height={item.trim_height_mm}
                         fill={isSelected ? '#fef9c3' : '#ffffff'}
                         stroke={isSelected ? '#eab308' : '#0284c7'}
                         strokeWidth={isSelected ? 1.8 : 1.0}
@@ -407,10 +403,10 @@ export const SheetVisualizer: React.FC<SheetVisualizerProps> = ({
                       {/* CutContour vector stroke for CNC Plotter */}
                       {deviceType === 'CNC_PLOTTER' && (
                         <rect
-                          x={trimX}
-                          y={trimY}
-                          width={trimW}
-                          height={trimH}
+                          x={item.trim_box.x1}
+                          y={item.trim_box.y1}
+                          width={item.trim_width_mm}
+                          height={item.trim_height_mm}
                           fill="none"
                           stroke="#10b981"
                           strokeWidth="0.9"
@@ -424,16 +420,16 @@ export const SheetVisualizer: React.FC<SheetVisualizerProps> = ({
                           {/* Sequence number for Cut & Stack */}
                           {workflow === 'CUT_AND_STACK' && item.sequence_number && (
                             <circle
-                              cx={trimX + 14}
-                              cy={trimY + 14}
+                              cx={item.trim_box.x1 + 14}
+                              cy={item.trim_box.y1 + 14}
                               r="9"
                               fill="#4f46e5"
                             />
                           )}
                           {workflow === 'CUT_AND_STACK' && item.sequence_number && (
                             <text
-                              x={trimX + 14}
-                              y={trimY + 17}
+                              x={item.trim_box.x1 + 14}
+                              y={item.trim_box.y1 + 17}
                               fill="#ffffff"
                               fontSize="9"
                               fontWeight="bold"
@@ -446,10 +442,10 @@ export const SheetVisualizer: React.FC<SheetVisualizerProps> = ({
 
                           {/* Order Label & Dimensions */}
                           <text
-                            x={trimX + 6}
-                            y={trimY + (workflow === 'CUT_AND_STACK' ? 30 : 14)}
+                            x={item.trim_box.x1 + 6}
+                            y={item.trim_box.y1 + (workflow === 'CUT_AND_STACK' ? 30 : 14)}
                             fill="#0f172a"
-                            fontSize={Math.max(4.5, Math.min(7.5, trimW / 14))}
+                            fontSize={Math.max(4.5, Math.min(7.5, item.trim_width_mm / 14))}
                             fontWeight="bold"
                             fontFamily="sans-serif"
                           >
@@ -457,13 +453,13 @@ export const SheetVisualizer: React.FC<SheetVisualizerProps> = ({
                           </text>
 
                           <text
-                            x={trimX + 6}
-                            y={trimY + (workflow === 'CUT_AND_STACK' ? 40 : 23)}
+                            x={item.trim_box.x1 + 6}
+                            y={item.trim_box.y1 + (workflow === 'CUT_AND_STACK' ? 40 : 23)}
                             fill="#64748b"
-                            fontSize={Math.max(4.0, Math.min(6.0, trimW / 16))}
+                            fontSize={Math.max(4.0, Math.min(6.0, item.trim_width_mm / 16))}
                             fontFamily="monospace"
                           >
-                            {trimW} × {trimH} mm
+                            {item.trim_width_mm} × {item.trim_height_mm} mm
                           </text>
                         </g>
                       )}
@@ -521,35 +517,35 @@ export const SheetVisualizer: React.FC<SheetVisualizerProps> = ({
 
       {/* Footer Info & Multi-sheet Pagination */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-neutral-800 bg-neutral-950 px-4 py-2 text-xs">
-        <div className="flex items-center gap-4 text-neutral-400 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap text-neutral-400">
           <div className="flex items-center gap-1.5">
             <div className="h-2.5 w-2.5 rounded-sm bg-sky-400" />
             <span>Bleed (spad)</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="h-2.5 w-2.5 rounded-sm bg-white border border-neutral-500" />
-            <span>Format netto</span>
+            <span>Produkt</span>
           </div>
           {workflow === 'GANGING' && (
             <>
               <div className="flex items-center gap-1.5">
-                <div className="h-2.5 w-4 rounded-sm border border-neutral-600 bg-gradient-to-r from-cyan-400 via-pink-400 via-yellow-400 to-slate-900" />
-                <span>Panel info</span>
+                <div className="h-2.5 w-2.5 rounded-sm bg-slate-100 border border-slate-900" />
+                <span>Panel Info (Order)</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <div className="h-2.5 w-3 rounded-sm bg-white border border-dashed border-amber-400" />
-                <span>Odpad (Waste)</span>
+                <div className="h-2.5 w-2.5 rounded-sm bg-white border-2 border-amber-500" />
+                <span>Slot Odpadu</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <div className="h-2.5 w-3 rounded-sm bg-yellow-400 border border-yellow-600" />
-                <span>Marker graniczny</span>
+                <div className="h-2.5 w-2.5 rounded-sm bg-yellow-400 border border-amber-600" />
+                <span>Marker Graniczny</span>
               </div>
             </>
           )}
           {deviceType === 'GUILLOTINE' && (
             <div className="flex items-center gap-1.5">
               <div className="h-0.5 w-4 bg-rose-500" />
-              <span>Cięcie gilotyny</span>
+              <span>Cięcie gilotynowe</span>
             </div>
           )}
           {deviceType === 'CNC_PLOTTER' && (
@@ -566,13 +562,8 @@ export const SheetVisualizer: React.FC<SheetVisualizerProps> = ({
         {selectedItem && (
           <div className="flex items-center gap-2 rounded bg-neutral-800 px-3 py-1 text-neutral-200">
             <span className="font-semibold text-sky-400">{selectedItem.order_id}</span>
-            {selectedItem.slot_type && selectedItem.slot_type !== 'PRODUCT' && (
-              <span className="rounded bg-amber-900/80 text-amber-200 text-[10px] px-1.5 py-0.5 font-bold">
-                {selectedItem.slot_type}
-              </span>
-            )}
             <span>
-              Pozycja: ({selectedItem.x_mm}, {selectedItem.y_mm}) mm | Wymiar: {selectedItem.trim_width_mm}×{selectedItem.trim_height_mm} mm
+              Pozycja: ({selectedItem.x_mm}, {selectedItem.y_mm}) mm | Wymiar netto: {selectedItem.trim_width_mm}×{selectedItem.trim_height_mm} mm
             </span>
           </div>
         )}

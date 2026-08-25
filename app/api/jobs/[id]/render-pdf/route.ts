@@ -183,7 +183,6 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         const slotType = item.slot_type || 'PRODUCT';
 
         // Position in PDF coordinates (origin at bottom-left)
-        // Convert top-left layout coordinates to bottom-left PDF coordinates
         const trimXPt = item.x_mm * MM_TO_PT;
         const trimYPt = sheetHeightPt - (item.y_mm + item.trim_height_mm) * MM_TO_PT;
         const trimWidthPt = item.trim_width_mm * MM_TO_PT;
@@ -191,24 +190,18 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
         // Draw Bleed Box (extended)
         if (item.bleed_mm > 0) {
-          const bleedColor = slotType === 'WASTE_SLOT'
-            ? rgb(0.99, 0.98, 0.92)
-            : slotType === 'NEXT_ORDER_START_MARKER' || slotType === 'ORDER_END_MARKER'
-            ? rgb(0.99, 0.95, 0.75)
-            : itemColor;
-
           page.drawRectangle({
             x: trimXPt - bleedPt,
             y: trimYPt - bleedPt,
             width: trimWidthPt + bleedPt * 2,
             height: trimHeightPt + bleedPt * 2,
-            color: bleedColor,
+            color: slotType === 'ORDER_INFO_PANEL' ? rgb(0.95, 0.96, 0.98) : itemColor,
             borderColor: rgb(0.7, 0.75, 0.82),
             borderWidth: 0.5,
           });
 
           // Slug identification in bottom bleed area (Cut off after guillotine cut)
-          const bleedSlugText = `ORD: ${item.order_id} | ${slotType === 'PRODUCT' ? `UZYTEK #${index + 1}` : slotType}`;
+          const bleedSlugText = `ORD: ${item.order_id} | ${slotType} #${index + 1}`;
           page.drawText(bleedSlugText, {
             x: trimXPt,
             y: trimYPt - bleedPt + 1.5,
@@ -218,148 +211,134 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           });
         }
 
-        // 1. ORDER_INFO_PANEL - CMYK calibration strip header & complete order info
         if (slotType === 'ORDER_INFO_PANEL') {
-          // Card background
+          // 1. ORDER_INFO_PANEL
           page.drawRectangle({
             x: trimXPt,
             y: trimYPt,
             width: trimWidthPt,
             height: trimHeightPt,
             color: rgb(1, 1, 1),
-            borderColor: rgb(0.1, 0.15, 0.25),
-            borderWidth: 1.0,
+            borderColor: rgb(0.1, 0.15, 0.2),
+            borderWidth: 1.2,
           });
 
-          // CMYK Calibration strip across top of panel
-          const stripH = 4;
-          const stripW = trimWidthPt / 4;
-          page.drawRectangle({ x: trimXPt, y: trimYPt + trimHeightPt - stripH, width: stripW, height: stripH, color: rgb(0, 0.8, 0.9) }); // Cyan
-          page.drawRectangle({ x: trimXPt + stripW, y: trimYPt + trimHeightPt - stripH, width: stripW, height: stripH, color: rgb(0.9, 0.2, 0.6) }); // Magenta
-          page.drawRectangle({ x: trimXPt + stripW * 2, y: trimYPt + trimHeightPt - stripH, width: stripW, height: stripH, color: rgb(0.98, 0.85, 0.1) }); // Yellow
-          page.drawRectangle({ x: trimXPt + stripW * 3, y: trimYPt + trimHeightPt - stripH, width: stripW, height: stripH, color: rgb(0.1, 0.1, 0.1) }); // Black
-
-          // Content inside Info Panel
-          const pLeft = trimXPt + 5;
-          let pY = trimYPt + trimHeightPt - stripH - 10;
-          const fSize = Math.max(5.5, Math.min(8.5, trimWidthPt / 22));
+          // CMYK Calibration bar on top
+          const segW = trimWidthPt / 4;
+          page.drawRectangle({ x: trimXPt, y: trimYPt + trimHeightPt - 6, width: segW, height: 6, color: rgb(0, 0.8, 1) });
+          page.drawRectangle({ x: trimXPt + segW, y: trimYPt + trimHeightPt - 6, width: segW, height: 6, color: rgb(1, 0, 0.8) });
+          page.drawRectangle({ x: trimXPt + segW * 2, y: trimYPt + trimHeightPt - 6, width: segW, height: 6, color: rgb(1, 0.9, 0) });
+          page.drawRectangle({ x: trimXPt + segW * 3, y: trimYPt + trimHeightPt - 6, width: segW, height: 6, color: rgb(0.1, 0.1, 0.1) });
 
           page.drawText('PANEL INFORMACYJNY ZAMOWIENIA', {
-            x: pLeft,
-            y: pY,
-            size: fSize,
+            x: trimXPt + 4,
+            y: trimYPt + trimHeightPt - 16,
+            size: 7,
             font: fontHelveticaBold,
             color: rgb(0.05, 0.1, 0.2),
           });
 
-          pY -= (fSize + 4);
-          page.drawText(`Zlecenie: ${item.order_id}`, {
-            x: pLeft,
-            y: pY,
-            size: fSize - 1,
+          page.drawText(`Order ID: ${item.order_id} (Naklad: ${item.order_quantity?.toLocaleString() || 0} szt.)`, {
+            x: trimXPt + 4,
+            y: trimYPt + trimHeightPt - 26,
+            size: 6.5,
             font: fontHelveticaBold,
-            color: rgb(0.1, 0.15, 0.25),
+            color: rgb(0.1, 0.4, 0.8),
           });
 
-          pY -= (fSize + 2);
           page.drawText(`Klient: ${item.customer_reference || 'Drukarnia Partnerska'}`, {
-            x: pLeft,
-            y: pY,
-            size: fSize - 1.5,
-            font: fontHelveticaBold,
-            color: rgb(0.1, 0.4, 0.7),
+            x: trimXPt + 4,
+            y: trimYPt + trimHeightPt - 36,
+            size: 6,
+            font: fontHelvetica,
+            color: rgb(0.2, 0.25, 0.35),
           });
 
-          pY -= (fSize + 2);
-          page.drawText(`Naklad: ${item.order_quantity ? `${item.order_quantity.toLocaleString()} szt.` : 'N/A'}`, {
-            x: pLeft,
-            y: pY,
-            size: fSize - 1.5,
-            font: fontHelveticaBold,
-            color: rgb(0.1, 0.55, 0.2),
-          });
-
-          pY -= (fSize + 2);
           page.drawText(`Plate ID: ${item.plate_id || 'JOB-PLATE'}`, {
-            x: pLeft,
-            y: pY,
-            size: fSize - 2,
+            x: trimXPt + 4,
+            y: trimYPt + trimHeightPt - 46,
+            size: 6,
             font: fontHelvetica,
-            color: rgb(0.4, 0.45, 0.55),
+            color: rgb(0.2, 0.25, 0.35),
           });
 
-          pY -= (fSize + 2);
-          page.drawText(`Spec: ${item.product_specs?.size || `${item.trim_width_mm}x${item.trim_height_mm}mm`}, ${item.product_specs?.paper_weight_gsm || 350}g`, {
-            x: pLeft,
-            y: pY,
-            size: fSize - 2.2,
+          page.drawText(`Spec: ${item.product_specs?.size} | ${item.product_specs?.paper_weight_gsm}g | ${item.product_specs?.finish?.slice(0, 24)}`, {
+            x: trimXPt + 4,
+            y: trimYPt + trimHeightPt - 56,
+            size: 5.5,
             font: fontHelvetica,
-            color: rgb(0.35, 0.4, 0.5),
+            color: rgb(0.3, 0.35, 0.45),
           });
-        }
-        // 2. WASTE_SLOT - White box with yellow border
-        else if (slotType === 'WASTE_SLOT') {
+        } else if (slotType === 'WASTE_SLOT') {
+          // 2. WASTE_SLOT (White with yellow border)
           page.drawRectangle({
             x: trimXPt,
             y: trimYPt,
             width: trimWidthPt,
             height: trimHeightPt,
             color: rgb(1, 1, 1),
-            borderColor: rgb(0.92, 0.7, 0.05),
-            borderWidth: 1.2,
+            borderColor: rgb(0.95, 0.75, 0.1),
+            borderWidth: 1.5,
           });
 
-          const wasteText = 'ODPAD / WASTE';
-          page.drawText(wasteText, {
-            x: trimXPt + Math.max(6, trimWidthPt / 2 - 25),
+          page.drawText('[ SLOT ODPADU ]', {
+            x: trimXPt + trimWidthPt / 2 - 28,
             y: trimYPt + trimHeightPt / 2 - 3,
-            size: Math.max(5, Math.min(8, trimWidthPt / 20)),
+            size: 7,
             font: fontHelveticaBold,
-            color: rgb(0.7, 0.5, 0.05),
+            color: rgb(0.8, 0.6, 0.05),
           });
-        }
-        // 3. NEXT_ORDER_START_MARKER - Solid yellow background, completely blank
-        else if (slotType === 'NEXT_ORDER_START_MARKER') {
+        } else if (slotType === 'NEXT_ORDER_START_MARKER') {
+          // 3. NEXT_ORDER_START_MARKER (Solid yellow, blank/marker)
           page.drawRectangle({
             x: trimXPt,
             y: trimYPt,
             width: trimWidthPt,
             height: trimHeightPt,
-            color: rgb(0.98, 0.85, 0.15),
-            borderColor: rgb(0.85, 0.7, 0.05),
-            borderWidth: 1.0,
+            color: rgb(1, 0.9, 0.2),
+            borderColor: rgb(0.85, 0.65, 0.05),
+            borderWidth: 1,
           });
-          // Completely blank - no text, no barcode
-        }
-        // 4. ORDER_END_MARKER - Solid yellow background + Barcode + "Print job {n}/{total}"
-        else if (slotType === 'ORDER_END_MARKER') {
+
+          page.drawText('POLACZENIE ZLECEN', {
+            x: trimXPt + trimWidthPt / 2 - 30,
+            y: trimYPt + trimHeightPt / 2 - 3,
+            size: 6.5,
+            font: fontHelveticaBold,
+            color: rgb(0.55, 0.4, 0.05),
+          });
+        } else if (slotType === 'ORDER_END_MARKER') {
+          // 4. ORDER_END_MARKER (Solid yellow with barcode & label)
           page.drawRectangle({
             x: trimXPt,
             y: trimYPt,
             width: trimWidthPt,
             height: trimHeightPt,
-            color: rgb(0.98, 0.85, 0.15),
-            borderColor: rgb(0.85, 0.7, 0.05),
-            borderWidth: 1.0,
+            color: rgb(1, 0.9, 0.2),
+            borderColor: rgb(0.85, 0.65, 0.05),
+            borderWidth: 1,
           });
 
-          // Draw barcode placeholder
-          const barcodeW = Math.min(80, trimWidthPt - 14);
-          if (trimHeightPt > 30 && barcodeW > 25) {
-            drawBarcode1D(page, item.order_id, trimXPt + 7, trimYPt + trimHeightPt / 2, 9, barcodeW);
-          }
+          // Draw Barcode on yellow marker
+          drawBarcode1D(page, item.job_label || 'ORDER-END', trimXPt + 8, trimYPt + trimHeightPt - 22, 12, trimWidthPt - 16);
 
-          const labelText = item.job_label || `Print job ${item.order_index || 1}/${item.total_orders || 1}`;
-          page.drawText(labelText, {
-            x: trimXPt + 7,
-            y: trimYPt + 8,
-            size: Math.max(5.5, Math.min(8.5, trimWidthPt / 18)),
+          page.drawText(item.job_label || `Print job ${item.order_index}/${item.total_orders}`, {
+            x: trimXPt + 8,
+            y: trimYPt + trimHeightPt - 32,
+            size: 7,
             font: fontHelveticaBold,
-            color: rgb(0.1, 0.15, 0.25),
+            color: rgb(0, 0, 0),
           });
-        }
-        // 5. PRODUCT - Regular product card
-        else {
+
+          page.drawText('ZNACZNIK KONCA ZLECENIA', {
+            x: trimXPt + 8,
+            y: trimYPt + 6,
+            size: 5.5,
+            font: fontHelveticaBold,
+            color: rgb(0.45, 0.35, 0.05),
+          });
+        } else {
+          // 5. PRODUCT (Standard product item box)
           page.drawRectangle({
             x: trimXPt,
             y: trimYPt,
@@ -370,7 +349,6 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             borderWidth: 0.75,
           });
 
-          // Item Label Text
           const title = item.order_id;
           const sub = `${item.trim_width_mm}x${item.trim_height_mm}mm (Spad ${item.bleed_mm}mm)`;
           const posText = `#${index + 1}${item.sequence_number ? ` | Str. ${item.sequence_number}` : ''}`;
@@ -378,7 +356,6 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           const fontSizeTitle = Math.min(9, Math.max(6, trimWidthPt / 18));
           const fontSizeSub = Math.max(5, fontSizeTitle - 2);
 
-          // Header inside item netto box
           page.drawText(title, {
             x: trimXPt + 6,
             y: trimYPt + trimHeightPt - fontSizeTitle - 6,
@@ -395,7 +372,6 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             color: rgb(0.4, 0.45, 0.55),
           });
 
-          // 1D Barcode on the item for scanning
           const itemBarcodeWidth = Math.min(80, trimWidthPt - 12);
           if (trimHeightPt > 35 && itemBarcodeWidth > 30) {
             drawBarcode1D(page, item.order_id, trimXPt + 6, trimYPt + 18, 10, itemBarcodeWidth);
@@ -417,7 +393,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           });
         }
 
-        // Corner crop marks (znaki cięcia) for all slots
+        // Corner crop marks (znaki cięcia)
         const cropLen = 8;
         const cropOffset = 2;
 

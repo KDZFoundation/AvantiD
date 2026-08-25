@@ -211,6 +211,21 @@ if data.get("status") == "COMPLETED":
             </div>
           )}
 
+          {/* Sampled Estimate Warning for large runs */}
+          {job.result?.is_sampled_estimate && (
+            <div className="rounded-xl border border-amber-300 dark:border-amber-700/80 bg-amber-50 dark:bg-amber-950/40 p-4 flex items-start gap-3 text-amber-900 dark:text-amber-200">
+              <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <h4 className="text-sm font-bold text-amber-950 dark:text-amber-100">
+                  Wartości szacunkowe - pełne obliczenia wymagają silnika Python
+                </h4>
+                <p className="text-xs text-amber-800 dark:text-amber-300">
+                  Wielkość nakładu przekracza standardową pojemność pojedynczej serii arkusza. Prezentowany układ stanowi próbkę reprezentatywną (sampled estimate) dla combo-run. Pełne obliczenia matrycy produkcyjnej dla wielotysięcznych nakładów wymagają dedykowanego silnika Python (Cloud Run).
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Interactive Layout Visualizer (if results available) */}
           {job.result && currentSheet && (
             <div className="space-y-2">

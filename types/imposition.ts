@@ -3,13 +3,6 @@ export type DeviceType = 'GUILLOTINE' | 'CNC_PLOTTER';
 export type PdfStandard = 'PDF/X-4' | 'PDF/X-1a';
 export type JobStatus = 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
 
-export type PlacedItemSlotType =
-  | 'PRODUCT'
-  | 'ORDER_INFO_PANEL'
-  | 'WASTE_SLOT'
-  | 'NEXT_ORDER_START_MARKER'
-  | 'ORDER_END_MARKER';
-
 export interface SheetConfig {
   width_mm: number;
   height_mm: number;
@@ -19,18 +12,25 @@ export interface SheetConfig {
   grain_direction?: 'LONG' | 'SHORT';
 }
 
+export type PlacedItemSlotType =
+  | 'PRODUCT'
+  | 'ORDER_INFO_PANEL'
+  | 'WASTE_SLOT'
+  | 'NEXT_ORDER_START_MARKER'
+  | 'ORDER_END_MARKER';
+
 export interface OrderItem {
   order_id: string;
+  customer_reference?: string;
   pdf_source_url: string;
   trim_width_mm: number;
   trim_height_mm: number;
   bleed_mm: number;
   quantity: number;
-  customer_reference?: string; // Reference to the customer/client ordering the item
-  paper_weight_gsm?: number;
-  paper_finish?: string;
   custom_label?: string;
   priority?: number;
+  paper_weight_gsm?: number;
+  paper_finish?: string;
 }
 
 export interface ImpositionJobPayload {
@@ -53,23 +53,22 @@ export interface PlacedItem {
   trim_height_mm: number;
   bleed_mm: number;
   rotation_deg: number; // 0 or 90
-  sequence_number?: number; // for CUT_AND_STACK or product index
+  sequence_number?: number; // for CUT_AND_STACK
   cut_contour?: boolean; // for CNC_PLOTTER
   bleed_box: { x1: number; y1: number; x2: number; y2: number };
   trim_box: { x1: number; y1: number; x2: number; y2: number };
-  // GANGING boundary marker & info slot extensions
   slot_type?: PlacedItemSlotType;
   customer_reference?: string;
-  plate_id?: string;
   order_quantity?: number;
-  order_index?: number;
-  total_orders?: number;
-  job_label?: string;
+  plate_id?: string;
   product_specs?: {
     size?: string;
     paper_weight_gsm?: number;
-    paper_finish?: string;
+    finish?: string;
   };
+  job_label?: string;
+  order_index?: number;
+  total_orders?: number;
 }
 
 export interface CutLine {
@@ -143,6 +142,7 @@ export interface JobResult {
   sheets: SheetLayout[];
   workflow_details: WorkflowDetails;
   service_origin: 'INTERNAL_CALC_ENGINE' | 'EXTERNAL_PYTHON_SERVICE_MOCK' | 'EXTERNAL_PYTHON_CLOUDRUN_LIVE';
+  is_sampled_estimate?: boolean;
 }
 
 export interface ImpositionJob {
