@@ -59,65 +59,42 @@ export const JobsListTable: React.FC<JobsListTableProps> = ({
           setIsQuotaExceeded(false);
         }
       }
-    } catch (err) {
-      console.error('Failed to fetch jobs:', err);
+    } catch {
+      // Gracefully handle dev server reload / network disconnect
     } finally {
       setIsLoading(false);
     }
   }, [statusFilter, workflowFilter]);
 
   useEffect(() => {
-    let isCancelled = false;
+    let ignore = false;
 
-    const fetchData = async () => {
-      try {
-        let url = '/api/jobs?limit=50';
-        if (statusFilter !== 'ALL') url += `&status=${statusFilter}`;
-        if (workflowFilter !== 'ALL') url += `&workflow=${workflowFilter}`;
-
-        const res = await fetch(url, {
-          headers: {
-            'x-pod-test-panel': 'true',
-          },
-        });
-
-        if (res.ok && !isCancelled) {
-          const data = await res.json();
-          setJobs(data.jobs || []);
-          if (data.isQuotaExceeded) {
-            setIsQuotaExceeded(true);
-            if (data.quotaInfo?.upgradeUrl) {
-              setQuotaUpgradeUrl(data.quotaInfo.upgradeUrl);
-            }
-          } else {
-            setIsQuotaExceeded(false);
-          }
-        }
-      } catch (err) {
-        if (!isCancelled) console.error('Failed to fetch jobs:', err);
-      } finally {
-        if (!isCancelled) setIsLoading(false);
+    const doFetch = async () => {
+      if (!ignore) {
+        await loadData();
       }
     };
 
-    fetchData();
+    doFetch();
 
     if (!autoRefresh) {
       return () => {
-        isCancelled = true;
+        ignore = true;
       };
     }
 
     const intervalId = setInterval(() => {
       if (typeof document !== 'undefined' && document.hidden) return;
-      fetchData();
-    }, 8000);
+      if (!ignore) {
+        loadData();
+      }
+    }, 5000);
 
     return () => {
-      isCancelled = true;
+      ignore = true;
       clearInterval(intervalId);
     };
-  }, [statusFilter, workflowFilter, refreshTrigger, autoRefresh]);
+  }, [loadData, refreshTrigger, autoRefresh]);
 
   const getStatusBadge = (status: JobStatus) => {
     switch (status) {
