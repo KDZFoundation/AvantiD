@@ -7,7 +7,7 @@ import {
   OpticalMark,
   WorkflowDetails,
 } from '@/types/imposition';
-import { adminDb } from './firebase-admin';
+import { updateJobInStore } from './job-store';
 
 /**
  * Executes or delegates the imposition calculation.
@@ -24,11 +24,10 @@ import { adminDb } from './firebase-admin';
  */
 export async function executeImpositionJob(jobId: string, payload: ImpositionJobPayload): Promise<void> {
   const startTime = Date.now();
-  const jobDoc = adminDb.collection('imposition_jobs').doc(jobId);
 
   try {
-    // 1. Mark status as PROCESSING in Firestore
-    await jobDoc.update({
+    // 1. Mark status as PROCESSING
+    await updateJobInStore(jobId, {
       status: 'PROCESSING',
       started_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -77,8 +76,8 @@ export async function executeImpositionJob(jobId: string, payload: ImpositionJob
       result = runInternalLayoutEngine(jobId, payload, startTime);
     }
 
-    // 2. Persist COMPLETED state and detailed metrics to Firestore
-    await jobDoc.update({
+    // 2. Persist COMPLETED state and detailed metrics
+    await updateJobInStore(jobId, {
       status: 'COMPLETED',
       completed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
@@ -87,7 +86,7 @@ export async function executeImpositionJob(jobId: string, payload: ImpositionJob
   } catch (error: any) {
     console.error(`[ImpositionEngine] Job ${jobId} failed:`, error);
     try {
-      await jobDoc.update({
+      await updateJobInStore(jobId, {
         status: 'FAILED',
         error_message: error.message || 'Unknown imposition layout error',
         completed_at: new Date().toISOString(),
