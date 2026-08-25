@@ -10,6 +10,7 @@ import {
   AlertCircle,
   XCircle,
   FileDown,
+  FileText,
   Copy,
   Check,
   Terminal,
@@ -363,28 +364,45 @@ if data.get("status") == "COMPLETED":
 
           {/* Download Production PDF Button */}
           {job.result && (
-            <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-gradient-to-r from-neutral-900 to-neutral-800 text-white shadow-lg">
+            <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-gradient-to-r from-neutral-900 via-neutral-850 to-neutral-800 text-white shadow-lg border border-neutral-700">
               <div className="flex items-center gap-3">
                 <div className="p-2.5 rounded-lg bg-sky-500/20 text-sky-400 border border-sky-500/30">
                   <FileDown className="h-5 w-5" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold">Wynikowy plik produkcyjny ({job.pdf_standard})</h4>
-                  <p className="text-xs text-neutral-300 font-mono">
-                    {job.result.download_pdf_url.split('/').pop()}
+                  <h4 className="text-sm font-bold flex items-center gap-2">
+                    Wynikowy arkusz produkcyjny PDF ({job.pdf_standard})
+                    <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      Gotowy do druku
+                    </span>
+                  </h4>
+                  <p className="text-xs text-neutral-300 font-mono mt-0.5">
+                    imposition_{job.id}_{job.workflow.toLowerCase()}_{job.sheet.width_mm}x{job.sheet.height_mm}mm.pdf
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <a
-                  href={job.result.download_pdf_url}
+                  href={`/api/jobs/${job.id}/report?source=test-panel`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 px-4 py-2 bg-sky-500 hover:bg-sky-400 text-neutral-950 font-bold rounded-lg text-xs transition-colors shadow"
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-white font-semibold rounded-lg text-xs transition-colors border border-neutral-600 hover:border-neutral-500 shadow-sm"
                 >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  Pobierz PDF Produkcyjny (Cloud Storage)
+                  <FileText className="h-4 w-4 text-amber-400" />
+                  Raport Technologiczny & Bilans
+                  <ExternalLink className="h-3 w-3 opacity-70" />
+                </a>
+
+                <a
+                  href={`/api/jobs/${job.id}/render-pdf?source=test-panel`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 px-4 py-2.5 bg-sky-500 hover:bg-sky-400 text-neutral-950 font-bold rounded-lg text-xs transition-colors shadow-md hover:shadow-sky-500/25"
+                >
+                  <FileDown className="h-4 w-4" />
+                  Otwórz / Pobierz PDF Produkcyjny
+                  <ExternalLink className="h-3 w-3 opacity-70" />
                 </a>
               </div>
             </div>

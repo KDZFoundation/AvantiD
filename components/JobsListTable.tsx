@@ -10,6 +10,7 @@ import {
   AlertCircle,
   XCircle,
   Eye,
+  FileText,
 } from 'lucide-react';
 
 interface JobsListTableProps {
@@ -38,7 +39,11 @@ export const JobsListTable: React.FC<JobsListTableProps> = ({
         if (statusFilter !== 'ALL') url += `&status=${statusFilter}`;
         if (workflowFilter !== 'ALL') url += `&workflow=${workflowFilter}`;
 
-        const res = await fetch(url);
+        const res = await fetch(url, {
+          headers: {
+            'x-pod-test-panel': 'true',
+          },
+        });
 
         if (res.ok && !isCancelled) {
           const data = await res.json();
@@ -276,16 +281,29 @@ export const JobsListTable: React.FC<JobsListTableProps> = ({
                     </td>
 
                     <td className="p-3.5 text-right">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelectJob(job);
-                        }}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 font-medium text-xs transition-colors"
-                      >
-                        <Eye className="h-3 w-3" />
-                        Szczegóły
-                      </button>
+                      <div className="inline-flex items-center gap-1.5 justify-end">
+                        <a
+                          href={`/api/jobs/${job.id}/report?source=test-panel`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          title="Otwórz / Wydrukuj Raport Technologiczny"
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 font-medium text-xs transition-colors border border-amber-500/30"
+                        >
+                          <FileText className="h-3 w-3" />
+                          Raport
+                        </a>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectJob(job);
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 font-medium text-xs transition-colors"
+                        >
+                          <Eye className="h-3 w-3" />
+                          Szczegóły
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

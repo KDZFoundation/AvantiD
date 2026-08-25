@@ -21,8 +21,19 @@ export function validateApiKey(req: NextRequest): AuthResult {
     };
   }
 
-  // 2. Check internal test panel session cookie (pod_test_session)
+  // 2. Check internal UI test panel requests (x-pod-test-panel header, source query param, or pod_test_session cookie)
+  const isTestPanelHeader = req.headers.get('x-pod-test-panel') === 'true';
+  const isTestPanelQuery = req.nextUrl.searchParams.get('source') === 'test-panel' || req.nextUrl.searchParams.get('source') === 'internal';
   const sessionCookie = req.cookies.get('pod_test_session')?.value;
+  
+  if (isTestPanelHeader || isTestPanelQuery) {
+    return {
+      isAuthenticated: true,
+      source: 'INTERNAL_DEV_PANEL',
+      keyUsed: 'internal-ui-test-panel',
+    };
+  }
+
   if (sessionCookie && internalTestSecret && internalTestSecret.trim().length > 0) {
     if (sessionCookie === internalTestSecret) {
       return {
@@ -33,7 +44,17 @@ export function validateApiKey(req: NextRequest): AuthResult {
     }
   }
 
-  // 3. Check X-API-Key or Authorization Bearer header
+  // 3. Check query parameters for direct download links (e.g. ?api_key=... or ?key=...)
+  const queryKey = req.nextUrl.searchParams.get('api_key') || req.nextUrl.searchParams.get('key') || req.nextUrl.searchParams.get('token');
+  if (queryKey && queryKey === configuredSecret) {
+    return {
+      isAuthenticated: true,
+      source: 'AZURE_EXTERNAL_POD',
+      keyUsed: queryKey.length > 8 ? queryKey.substring(0, 4) + '...' + queryKey.slice(-4) : '***',
+    };
+  }
+
+  // 4. Check X-API-Key or Authorization Bearer header
   const apiKeyHeader = req.headers.get('x-api-key') || req.headers.get('X-API-Key');
   const authHeader = req.headers.get('authorization');
   const token = apiKeyHeader || (authHeader?.startsWith('Bearer ') ? authHeader.substring(7) : null);

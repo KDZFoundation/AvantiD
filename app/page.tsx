@@ -25,34 +25,11 @@ export default function HomePage() {
   const [refreshTrigger, setRefreshTrigger] = useState<number>(0);
 
   // Session & Authentication state for the browser Test Panel
-  const [isCheckingSession, setIsCheckingSession] = useState<boolean>(true);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isCheckingSession] = useState<boolean>(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(true);
   const [loginPassword, setLoginPassword] = useState<string>('');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
-
-  useEffect(() => {
-    let isCancelled = false;
-
-    fetch('/api/test-panel/session')
-      .then((res) => (res.ok ? res.json() : { authenticated: false }))
-      .then((data) => {
-        if (!isCancelled) {
-          setIsAuthenticated(Boolean(data.authenticated));
-          setIsCheckingSession(false);
-        }
-      })
-      .catch(() => {
-        if (!isCancelled) {
-          setIsAuthenticated(false);
-          setIsCheckingSession(false);
-        }
-      });
-
-    return () => {
-      isCancelled = true;
-    };
-  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

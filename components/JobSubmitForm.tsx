@@ -463,6 +463,13 @@ export const JobSubmitForm: React.FC<JobSubmitFormProps> = ({ onJobSubmitted }) 
                           onChange={(e) => updateOrderItem(idx, 'custom_label', e.target.value)}
                           className="text-xs text-neutral-700 dark:text-neutral-300 bg-neutral-50 dark:bg-neutral-800/60 rounded px-2.5 py-1 border border-neutral-200 dark:border-neutral-700 flex-1"
                         />
+                        <input
+                          type="text"
+                          placeholder="Klient / Zamawiający"
+                          value={ord.customer_reference || ''}
+                          onChange={(e) => updateOrderItem(idx, 'customer_reference', e.target.value)}
+                          className="text-xs text-sky-700 dark:text-sky-300 bg-sky-50/50 dark:bg-sky-950/30 rounded px-2.5 py-1 border border-sky-200 dark:border-sky-800/60 w-44"
+                        />
                       </div>
                       {orders.length > 1 && (
                         <button

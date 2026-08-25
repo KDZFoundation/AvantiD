@@ -27,6 +27,9 @@ export const OrderItemSchema = z.object({
     .int('quantity must be an integer')
     .positive('quantity must be at least 1')
     .max(10000000, 'quantity cannot exceed 10,000,000'),
+  customer_reference: z.string().optional(),
+  paper_weight_gsm: z.number().positive().optional(),
+  paper_finish: z.string().optional(),
   custom_label: z.string().optional(),
   priority: z.number().int().optional(),
 });
