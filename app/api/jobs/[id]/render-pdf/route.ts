@@ -397,6 +397,164 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
           // Draw Netto Crop Marks
           drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
+        } else if (slotType === 'STACK_COVER') {
+          // STACK_COVER card (Gelato style stack cover card)
+          pageFront.drawRectangle({
+            x: trimXPt,
+            y: trimYPt,
+            width: trimWidthPt,
+            height: trimHeightPt,
+            color: rgb(1, 1, 1),
+            borderColor: rgb(0.1, 0.1, 0.1),
+            borderWidth: 0.5,
+          });
+
+          const stackStr = `${item.stack_number || 1}/${item.total_stacks || 8}`;
+
+          // Stack Title Box
+          pageFront.drawText('Stack', {
+            x: trimXPt + 10,
+            y: trimYPt + trimHeightPt - 22,
+            size: 11,
+            font: fontHelveticaBold,
+            color: rgb(0, 0, 0),
+          });
+
+          pageFront.drawText(stackStr, {
+            x: trimXPt + 10,
+            y: trimYPt + trimHeightPt - 38,
+            size: 14,
+            font: fontHelveticaBold,
+            color: rgb(0, 0, 0),
+          });
+
+          // Details
+          pageFront.drawText(String(item.order_id), {
+            x: trimXPt + 10,
+            y: trimYPt + trimHeightPt - 55,
+            size: 10,
+            font: fontHelveticaBold,
+            color: rgb(0, 0, 0),
+          });
+
+          pageFront.drawText(`Quantity: ${item.order_quantity || 0}`, {
+            x: trimXPt + 10,
+            y: trimYPt + trimHeightPt - 68,
+            size: 8,
+            font: fontHelveticaBold,
+            color: rgb(0, 0, 0),
+          });
+
+          pageFront.drawText('FLAT CARD (2 PAGES)', {
+            x: trimXPt + 10,
+            y: trimYPt + trimHeightPt - 80,
+            size: 7.5,
+            font: fontHelveticaBold,
+            color: rgb(0, 0, 0),
+          });
+
+          pageFront.drawText(`Size: ${item.product_specs?.size || '105x148-mm'}`, {
+            x: trimXPt + 10,
+            y: trimYPt + trimHeightPt - 90,
+            size: 7,
+            font: fontHelvetica,
+            color: rgb(0.2, 0.2, 0.2),
+          });
+
+          pageFront.drawText(`Paper: ${item.product_specs?.paper_weight_gsm || 300}-gsm-uncoated`, {
+            x: trimXPt + 10,
+            y: trimYPt + trimHeightPt - 100,
+            size: 7,
+            font: fontHelvetica,
+            color: rgb(0.2, 0.2, 0.2),
+          });
+
+          pageFront.drawText('Coating: none', {
+            x: trimXPt + 10,
+            y: trimYPt + trimHeightPt - 110,
+            size: 7,
+            font: fontHelvetica,
+            color: rgb(0.2, 0.2, 0.2),
+          });
+
+          pageFront.drawText(`Plate: ${item.plate_id || '2954502725'}`, {
+            x: trimXPt + 10,
+            y: trimYPt + trimHeightPt - 120,
+            size: 7,
+            font: fontHelvetica,
+            color: rgb(0.2, 0.2, 0.2),
+          });
+
+          if (item.customer_reference) {
+            pageFront.drawText(item.customer_reference, {
+              x: trimXPt + 10,
+              y: trimYPt + trimHeightPt - 132,
+              size: 8,
+              font: fontHelveticaBold,
+              color: rgb(0, 0, 0),
+            });
+          }
+
+          pageFront.drawText(`Order ID: ${item.order_id}`, {
+            x: trimXPt + 10,
+            y: trimYPt + trimHeightPt - 144,
+            size: 7,
+            font: fontHelvetica,
+            color: rgb(0.3, 0.3, 0.3),
+          });
+
+          pageFront.drawText('gelato-create', {
+            x: trimXPt + 10,
+            y: trimYPt + trimHeightPt - 154,
+            size: 7,
+            font: fontHelvetica,
+            color: rgb(0.3, 0.3, 0.3),
+          });
+
+          pageFront.drawText(item.order_index === 1 ? 'WC' : 'Q0', {
+            x: trimXPt + 10,
+            y: trimYPt + trimHeightPt - 166,
+            size: 8,
+            font: fontHelveticaBold,
+            color: rgb(0, 0, 0),
+          });
+
+          pageFront.drawText(item.job_label || 'Print job 1/2', {
+            x: trimXPt + 10,
+            y: trimYPt + trimHeightPt - 178,
+            size: 8,
+            font: fontHelveticaBold,
+            color: rgb(0, 0, 0),
+          });
+
+          // Sorting instruction box at bottom
+          pageFront.drawRectangle({
+            x: trimXPt + 6,
+            y: trimYPt + 10,
+            width: trimWidthPt - 12,
+            height: 38,
+            color: rgb(0.96, 0.96, 0.96),
+            borderColor: rgb(0.8, 0.8, 0.8),
+            borderWidth: 0.5,
+          });
+
+          pageFront.drawText(`Dispatch date: ${item.dispatch_date || '2026-08-24'}`, {
+            x: trimXPt + 10,
+            y: trimYPt + 36,
+            size: 6.5,
+            font: fontHelvetica,
+            color: rgb(0.3, 0.3, 0.3),
+          });
+
+          pageFront.drawText('Remove this top card during sorting', {
+            x: trimXPt + 10,
+            y: trimYPt + 18,
+            size: 6.5,
+            font: fontHelveticaBold,
+            color: rgb(0.8, 0.1, 0.1),
+          });
+
+          drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
         } else if (slotType === 'ORDER_INFO_PANEL') {
           // 1. ORDER_INFO_PANEL
           pageFront.drawRectangle({
@@ -589,7 +747,17 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         });
       }
 
-      // Front Header Slug
+      // Front Header Slug & Plate ID
+      const plateIdText = job.result.sheets[0]?.placed_items[0]?.plate_id || job.id;
+      const plateSlugFront = `${plateIdText} sheet ${sheetLayout.sheet_index}/${job.result.sheets.length}`;
+      pageFront.drawText(plateSlugFront, {
+        x: sheetWidthPt - 140,
+        y: sheetHeightPt - 12,
+        size: 8,
+        font: fontHelvetica,
+        color: rgb(0, 0, 0),
+      });
+
       const slugTextFront = `POD IMPOSITION | Job ID: ${job.id} | Workflow: ${job.workflow} | ${sheetLayout.sheet_name} [FRONT / AWERS] | Yield: ${sheetLayout.sheet_yield_percentage}%`;
       pageFront.drawText(slugTextFront, {
         x: marginPt,
@@ -703,6 +871,19 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           });
 
           drawCropMarks(pageBack, backTrimXPt, trimYPt, trimWidthPt, trimHeightPt);
+        } else if (slotType === 'STACK_COVER') {
+          // STACK_COVER back side (blank white card with crop marks)
+          pageBack.drawRectangle({
+            x: backTrimXPt,
+            y: trimYPt,
+            width: trimWidthPt,
+            height: trimHeightPt,
+            color: rgb(1, 1, 1),
+            borderColor: rgb(0.9, 0.9, 0.9),
+            borderWidth: 0.5,
+          });
+
+          drawCropMarks(pageBack, backTrimXPt, trimYPt, trimWidthPt, trimHeightPt);
         } else if (slotType === 'ORDER_INFO_PANEL') {
           // Info panel back side
           pageBack.drawRectangle({
@@ -809,7 +990,16 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         });
       }
 
-      // Back Header Slug
+      // Back Header Slug & Plate ID
+      const plateSlugBack = `${plateIdText} sheet ${sheetLayout.sheet_index}/${job.result.sheets.length}`;
+      pageBack.drawText(plateSlugBack, {
+        x: sheetWidthPt - 140,
+        y: sheetHeightPt - 12,
+        size: 8,
+        font: fontHelvetica,
+        color: rgb(0, 0, 0),
+      });
+
       const slugTextBack = `POD IMPOSITION | Job ID: ${job.id} | Workflow: ${job.workflow} | ${sheetLayout.sheet_name} [BACK / REWERS] | Yield: ${sheetLayout.sheet_yield_percentage}%`;
       pageBack.drawText(slugTextBack, {
         x: marginPt,

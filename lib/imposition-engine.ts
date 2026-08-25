@@ -464,111 +464,110 @@ function runGangingWorkflow(jobId: string, payload: ImpositionJobPayload, startT
  * When the pile of S sheets is sliced into N stacks and placed on top of each other,
  * items 1..M are in exact continuous numerical order!
  */
-function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayload, startTime: number): JobResult {
+export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayload, startTime: number): JobResult {
   const { sheet, orders, device_type, pdf_standard } = payload;
-  const sheetWidth = sheet.width_mm;
-  const sheetHeight = sheet.height_mm;
-  const margin = sheet.margins_mm;
-  const gripperMargin = sheet.gripper_margin_mm;
 
-  const printableMinX = margin;
-  const printableMaxX = sheetWidth - margin;
-  const printableMinY = gripperMargin;
-  const printableMaxY = sheetHeight - margin;
-  const printableWidth = printableMaxX - printableMinX;
-  const printableHeight = printableMaxY - printableMinY;
+  // Use SRA3 press sheet dimensions (480 x 330 mm) for multi-up imposition if target is small
+  const isSmallSheet = sheet.width_mm < 400 || sheet.height_mm < 300;
+  const sheetWidth = isSmallSheet ? 480.0 : sheet.width_mm;
+  const sheetHeight = isSmallSheet ? 330.0 : sheet.height_mm;
 
-  // Total items / pages to sequence across all orders
-  const totalItemsCount = orders.reduce((sum, o) => sum + o.quantity, 0);
   const sampleOrder = orders[0];
+  const trimW = sampleOrder?.trim_width_mm ?? 105.0;
+  const trimH = sampleOrder?.trim_height_mm ?? 148.0;
   const bleed = sampleOrder?.bleed_mm ?? 2.0;
-  const itemTotalW = (sampleOrder?.trim_width_mm ?? 100) + 2 * bleed;
-  const itemTotalH = (sampleOrder?.trim_height_mm ?? 148) + 2 * bleed;
+  const itemTotalW = trimW + 2 * bleed;
+  const itemTotalH = trimH + 2 * bleed;
 
-  // Grid calculation (Cols x Rows)
-  const cols = Math.max(1, Math.floor(printableWidth / itemTotalW));
-  const rows = Math.max(1, Math.floor(printableHeight / itemTotalH));
+  // Grid calculation on press sheet (e.g. 480x330mm gives 4 cols x 2 rows = 8 slots)
+  const cols = Math.max(1, Math.floor(sheetWidth / itemTotalW));
+  const rows = Math.max(1, Math.floor(sheetHeight / itemTotalH));
   const slotsPerSheet = cols * rows;
 
-  // Stack depth (how many sheets high the pile will be)
-  const stackDepthSheets = Math.ceil(totalItemsCount / slotsPerSheet);
-
-  // Center the grid on the sheet
   const gridTotalW = cols * itemTotalW;
   const gridTotalH = rows * itemTotalH;
-  const offsetX = printableMinX + (printableWidth - gridTotalW) / 2;
-  const offsetY = printableMinY + (printableHeight - gridTotalH) / 2;
+  const offsetX = Number(((sheetWidth - gridTotalW) / 2).toFixed(2));
+  const offsetY = Number(((sheetHeight - gridTotalH) / 2).toFixed(2));
 
-  // Generate representative sample sheets (e.g. Sheet 1, Sheet 2, and Final Sheet)
-  const sheetsToSimulateCount = Math.min(stackDepthSheets, 3);
   const sheets: SheetLayout[] = [];
+  let globalSheetIndex = 1;
+  const dispatchDate = new Date().toISOString().slice(0, 10);
 
-  for (let sIdx = 1; sIdx <= sheetsToSimulateCount; sIdx++) {
-    const placedItems: PlacedItem[] = [];
-    const horizontalCuts = new Set<number>();
-    const verticalCuts = new Set<number>();
+  // Generate Cut & Stack sheets with Stack Cover sheets per order
+  for (let oIdx = 0; oIdx < orders.length; oIdx++) {
+    const o = orders[oIdx];
+    const orderBleed = o.bleed_mm;
+    const orderTotalW = o.trim_width_mm + 2 * orderBleed;
+    const orderTotalH = o.trim_height_mm + 2 * orderBleed;
+
+    // Number of product sheets required to fulfill order quantity
+    const productSheetsCount = Math.max(1, Math.ceil(o.quantity / slotsPerSheet));
+
+    // 1. Generate STACK COVER Sheet for this order
+    const coverPlacedItems: PlacedItem[] = [];
+    const coverHorizCuts = new Set<number>();
+    const coverVertCuts = new Set<number>();
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        const slotLinearIndex = r * cols + c; // 0..N-1
-        // Cut & Stack sequence formula:
-        const seqNumber = sIdx + slotLinearIndex * stackDepthSheets;
+        const slotIdx = r * cols + c;
+        const stackNo = slotIdx + 1;
+        const itemX = offsetX + c * orderTotalW;
+        const itemY = offsetY + r * orderTotalH;
 
-        if (seqNumber <= totalItemsCount) {
-          const itemX = offsetX + c * itemTotalW;
-          const itemY = offsetY + r * itemTotalH;
+        coverPlacedItems.push({
+          instance_id: `cover_${o.order_id}_stack_${stackNo}_sheet_${globalSheetIndex}`,
+          order_id: o.order_id,
+          pdf_source_url: o.pdf_source_url,
+          x_mm: Number(itemX.toFixed(2)),
+          y_mm: Number(itemY.toFixed(2)),
+          width_with_bleed_mm: orderTotalW,
+          height_with_bleed_mm: orderTotalH,
+          trim_width_mm: o.trim_width_mm,
+          trim_height_mm: o.trim_height_mm,
+          bleed_mm: orderBleed,
+          rotation_deg: 0,
+          slot_type: 'STACK_COVER',
+          stack_number: stackNo,
+          total_stacks: slotsPerSheet,
+          customer_reference: o.customer_reference || 'Drukarnia Partnerska',
+          order_quantity: o.quantity,
+          plate_id: jobId,
+          dispatch_date: dispatchDate,
+          product_specs: {
+            size: `${o.trim_width_mm}x${o.trim_height_mm}-mm`,
+            paper_weight_gsm: o.paper_weight_gsm || 300,
+            finish: o.paper_finish || '300-gsm-uncoated',
+          },
+          job_label: `Print job ${oIdx + 1}/${orders.length}`,
+          order_index: oIdx + 1,
+          total_orders: orders.length,
+          bleed_box: {
+            x1: itemX,
+            y1: itemY,
+            x2: itemX + orderTotalW,
+            y2: itemY + orderTotalH,
+          },
+          trim_box: {
+            x1: itemX + orderBleed,
+            y1: itemY + orderBleed,
+            x2: itemX + orderTotalW - orderBleed,
+            y2: itemY + orderTotalH - orderBleed,
+          },
+        });
 
-          // Find which order this item belongs to
-          let currentAcc = 0;
-          let assignedOrder = orders[0];
-          for (const ord of orders) {
-            currentAcc += ord.quantity;
-            if (seqNumber <= currentAcc) {
-              assignedOrder = ord;
-              break;
-            }
-          }
-
-          placedItems.push({
-            instance_id: `cutstack_sheet${sIdx}_slot${slotLinearIndex}_seq${seqNumber}`,
-            order_id: assignedOrder.order_id,
-            pdf_source_url: assignedOrder.pdf_source_url,
-            x_mm: Number(itemX.toFixed(2)),
-            y_mm: Number(itemY.toFixed(2)),
-            width_with_bleed_mm: itemTotalW,
-            height_with_bleed_mm: itemTotalH,
-            trim_width_mm: assignedOrder.trim_width_mm,
-            trim_height_mm: assignedOrder.trim_height_mm,
-            bleed_mm: bleed,
-            rotation_deg: 0,
-            sequence_number: seqNumber,
-            bleed_box: {
-              x1: itemX,
-              y1: itemY,
-              x2: itemX + itemTotalW,
-              y2: itemY + itemTotalH,
-            },
-            trim_box: {
-              x1: itemX + bleed,
-              y1: itemY + bleed,
-              x2: itemX + itemTotalW - bleed,
-              y2: itemY + itemTotalH - bleed,
-            },
-          });
-
-          horizontalCuts.add(itemY);
-          horizontalCuts.add(itemY + itemTotalH);
-          verticalCuts.add(itemX);
-          verticalCuts.add(itemX + itemTotalW);
-        }
+        coverHorizCuts.add(itemY);
+        coverHorizCuts.add(itemY + orderTotalH);
+        coverVertCuts.add(itemX);
+        coverVertCuts.add(itemX + orderTotalW);
       }
     }
 
-    const cutLines: CutLine[] = [];
+    const coverCutLines: CutLine[] = [];
     if (device_type === 'GUILLOTINE') {
       let cutOrder = 1;
-      Array.from(horizontalCuts).sort((a, b) => a - b).forEach((y) => {
-        cutLines.push({
+      Array.from(coverHorizCuts).sort((a, b) => a - b).forEach((y) => {
+        coverCutLines.push({
           type: 'HORIZONTAL',
           start_mm: { x: 0, y },
           end_mm: { x: sheetWidth, y },
@@ -576,8 +575,8 @@ function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayload, st
           is_through_cut: true,
         });
       });
-      Array.from(verticalCuts).sort((a, b) => a - b).forEach((x) => {
-        cutLines.push({
+      Array.from(coverVertCuts).sort((a, b) => a - b).forEach((x) => {
+        coverCutLines.push({
           type: 'VERTICAL',
           start_mm: { x, y: 0 },
           end_mm: { x, y: sheetHeight },
@@ -588,32 +587,137 @@ function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayload, st
     }
 
     const totalSheetAreaSqm = (sheetWidth * sheetHeight) / 1_000_000;
-    const usedAreaSqm = placedItems.reduce((acc, item) => {
-      return acc + (item.trim_width_mm * item.trim_height_mm) / 1_000_000;
-    }, 0);
-    const wasteAreaSqm = Math.max(0, totalSheetAreaSqm - usedAreaSqm);
-    const sheetYieldPct = Number(((usedAreaSqm / totalSheetAreaSqm) * 100).toFixed(1));
+    const coverUsedArea = coverPlacedItems.reduce((acc, item) => acc + (item.trim_width_mm * item.trim_height_mm) / 1_000_000, 0);
 
     sheets.push({
-      sheet_index: sIdx,
-      sheet_name: `Sheet ${sIdx} of ${stackDepthSheets} (Seq ${sIdx}..${sIdx + (slotsPerSheet - 1) * stackDepthSheets})`,
+      sheet_index: globalSheetIndex,
+      sheet_name: `sheet ${globalSheetIndex}/9`,
       width_mm: sheetWidth,
       height_mm: sheetHeight,
       gripper_edge: 'BOTTOM',
-      placed_items: placedItems,
-      cut_lines: cutLines,
-      waste_area_sqm: wasteAreaSqm,
-      used_area_sqm: usedAreaSqm,
-      sheet_yield_percentage: sheetYieldPct,
+      placed_items: coverPlacedItems,
+      cut_lines: coverCutLines,
+      waste_area_sqm: Math.max(0, totalSheetAreaSqm - coverUsedArea),
+      used_area_sqm: coverUsedArea,
+      sheet_yield_percentage: Number(((coverUsedArea / totalSheetAreaSqm) * 100).toFixed(1)),
     });
+    globalSheetIndex++;
+
+    // 2. Generate PRODUCT Sheets for this order
+    for (let pIdx = 1; pIdx <= productSheetsCount; pIdx++) {
+      const prodPlacedItems: PlacedItem[] = [];
+      const prodHorizCuts = new Set<number>();
+      const prodVertCuts = new Set<number>();
+
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const slotIdx = r * cols + c;
+          const seqNo = pIdx + slotIdx * productSheetsCount;
+          const itemX = offsetX + c * orderTotalW;
+          const itemY = offsetY + r * orderTotalH;
+
+          prodPlacedItems.push({
+            instance_id: `prod_${o.order_id}_psheet_${pIdx}_slot_${slotIdx}`,
+            order_id: o.order_id,
+            pdf_source_url: o.pdf_source_url,
+            x_mm: Number(itemX.toFixed(2)),
+            y_mm: Number(itemY.toFixed(2)),
+            width_with_bleed_mm: orderTotalW,
+            height_with_bleed_mm: orderTotalH,
+            trim_width_mm: o.trim_width_mm,
+            trim_height_mm: o.trim_height_mm,
+            bleed_mm: orderBleed,
+            rotation_deg: 0,
+            slot_type: 'PRODUCT',
+            sequence_number: seqNo,
+            customer_reference: o.customer_reference || 'Drukarnia Partnerska',
+            order_quantity: o.quantity,
+            plate_id: jobId,
+            dispatch_date: dispatchDate,
+            product_specs: {
+              size: `${o.trim_width_mm}x${o.trim_height_mm}-mm`,
+              paper_weight_gsm: o.paper_weight_gsm || 300,
+              finish: o.paper_finish || '300-gsm-uncoated',
+            },
+            job_label: `Print job ${oIdx + 1}/${orders.length}`,
+            order_index: oIdx + 1,
+            total_orders: orders.length,
+            bleed_box: {
+              x1: itemX,
+              y1: itemY,
+              x2: itemX + orderTotalW,
+              y2: itemY + orderTotalH,
+            },
+            trim_box: {
+              x1: itemX + orderBleed,
+              y1: itemY + orderBleed,
+              x2: itemX + orderTotalW - orderBleed,
+              y2: itemY + orderTotalH - orderBleed,
+            },
+          });
+
+          prodHorizCuts.add(itemY);
+          prodHorizCuts.add(itemY + orderTotalH);
+          prodVertCuts.add(itemX);
+          prodVertCuts.add(itemX + orderTotalW);
+        }
+      }
+
+      const prodCutLines: CutLine[] = [];
+      if (device_type === 'GUILLOTINE') {
+        let cutOrder = 1;
+        Array.from(prodHorizCuts).sort((a, b) => a - b).forEach((y) => {
+          prodCutLines.push({
+            type: 'HORIZONTAL',
+            start_mm: { x: 0, y },
+            end_mm: { x: sheetWidth, y },
+            cut_order: cutOrder++,
+            is_through_cut: true,
+          });
+        });
+        Array.from(prodVertCuts).sort((a, b) => a - b).forEach((x) => {
+          prodCutLines.push({
+            type: 'VERTICAL',
+            start_mm: { x, y: 0 },
+            end_mm: { x, y: sheetHeight },
+            cut_order: cutOrder++,
+            is_through_cut: true,
+          });
+        });
+      }
+
+      const prodUsedArea = prodPlacedItems.reduce((acc, item) => acc + (item.trim_width_mm * item.trim_height_mm) / 1_000_000, 0);
+
+      sheets.push({
+        sheet_index: globalSheetIndex,
+        sheet_name: `sheet ${globalSheetIndex}/9`,
+        width_mm: sheetWidth,
+        height_mm: sheetHeight,
+        gripper_edge: 'BOTTOM',
+        placed_items: prodPlacedItems,
+        cut_lines: prodCutLines,
+        waste_area_sqm: Math.max(0, totalSheetAreaSqm - prodUsedArea),
+        used_area_sqm: prodUsedArea,
+        sheet_yield_percentage: Number(((prodUsedArea / totalSheetAreaSqm) * 100).toFixed(1)),
+      });
+      globalSheetIndex++;
+    }
   }
+
+  // Update sheet_name with final total sheet count
+  const totalSheetsGenerated = sheets.length;
+  sheets.forEach((s) => {
+    s.sheet_name = `sheet ${s.sheet_index}/${totalSheetsGenerated}`;
+  });
 
   const totalSheetAreaSqm = (sheetWidth * sheetHeight) / 1_000_000;
   const primarySheet = sheets[0];
   const yieldPct = primarySheet?.sheet_yield_percentage ?? 80;
   const wastePct = Number((100 - yieldPct).toFixed(1));
-  const totalWasteSqm = Number(((totalSheetAreaSqm * (100 - yieldPct)) / 100 * stackDepthSheets).toFixed(4));
-  const totalUsedSqm = Number(((totalSheetAreaSqm * yieldPct) / 100 * stackDepthSheets).toFixed(4));
+  const totalWasteSqm = Number(((totalSheetAreaSqm * (100 - yieldPct)) / 100 * totalSheetsGenerated).toFixed(4));
+  const totalUsedSqm = Number(((totalSheetAreaSqm * yieldPct) / 100 * totalSheetsGenerated).toFixed(4));
+
+  const totalItemsCount = orders.reduce((sum, o) => sum + o.quantity, 0);
 
   const workflowDetails: WorkflowDetails = {
     workflow: 'CUT_AND_STACK',
@@ -623,13 +727,13 @@ function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayload, st
       slots_per_sheet: slotsPerSheet,
       grid_rows: rows,
       grid_cols: cols,
-      stack_depth_sheets: stackDepthSheets,
+      stack_depth_sheets: totalSheetsGenerated,
       operator_stack_instructions: [
-        `1. Drukuj cały nakład (${stackDepthSheets} arkuszy) w jednym stosie.`,
+        `1. Drukuj cały nakład (${totalSheetsGenerated} arkuszy SRA3) w jednym stosie.`,
         `2. Umieść cały stos w gilotynie jednonożowej bez obracania ani tasowania arkuszy.`,
         `3. Wykonaj cięcia wzdłużne i poprzeczne (siatka ${cols} x ${rows} użytków).`,
         `4. Po pocięciu ułóż powstałe ${slotsPerSheet} słupków od lewej do prawej, od góry do dołu na siebie.`,
-        `5. Wynikowy stos posiada idealną ciągłą numerację od 1 do ${totalItemsCount}.`,
+        `5. Wynikowy stos posiada nakład i etykiety słupkowe do weryfikacji przez operatora.`,
       ],
     },
   };
@@ -641,9 +745,9 @@ function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayload, st
     waste_percentage: wastePct,
     total_waste_sqm: totalWasteSqm,
     total_used_sqm: totalUsedSqm,
-    sheet_run_count: stackDepthSheets,
-    total_sheets_required: stackDepthSheets,
-    sheets_generated_count: stackDepthSheets,
+    sheet_run_count: totalSheetsGenerated,
+    total_sheets_required: totalSheetsGenerated,
+    sheets_generated_count: totalSheetsGenerated,
     download_pdf_url: downloadPdfUrl,
     pdf_standard: pdf_standard,
     execution_time_ms: Date.now() - startTime,
