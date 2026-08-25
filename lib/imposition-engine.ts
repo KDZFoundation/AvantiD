@@ -467,10 +467,12 @@ function runGangingWorkflow(jobId: string, payload: ImpositionJobPayload, startT
 export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayload, startTime: number): JobResult {
   const { sheet, orders, device_type, pdf_standard } = payload;
 
+
   // Use SRA3 press sheet dimensions (480 x 330 mm) for multi-up imposition if target is small
   const isSmallSheet = sheet.width_mm < 400 || sheet.height_mm < 300;
   const sheetWidth = isSmallSheet ? 480.0 : sheet.width_mm;
   const sheetHeight = isSmallSheet ? 330.0 : sheet.height_mm;
+
 
   const sampleOrder = orders[0];
   const trimW = sampleOrder?.trim_width_mm ?? 105.0;
