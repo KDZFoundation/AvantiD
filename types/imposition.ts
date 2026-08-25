@@ -15,6 +15,7 @@ export interface SheetConfig {
 
 export type PlacedItemSlotType =
   | 'PRODUCT'
+  | 'STACK_COVER'
   | 'ORDER_INFO_PANEL'
   | 'WASTE_SLOT'
   | 'NEXT_ORDER_START_MARKER'
@@ -71,6 +72,9 @@ export interface PlacedItem {
   job_label?: string;
   order_index?: number;
   total_orders?: number;
+  stack_number?: number;
+  total_stacks?: number;
+  dispatch_date?: string;
 }
 
 export interface CutLine {
