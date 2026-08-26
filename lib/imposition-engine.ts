@@ -509,11 +509,11 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
   const sheetWidth = sheet?.width_mm ?? 480.0;
   const sheetHeight = sheet?.height_mm ?? 330.0;
   const margin = sheet?.margins_mm ?? 5.0;
-  const gap = 6.0;
+  const gap = sheet?.gutter_mm ?? 0.0;
 
   const sampleOrder = orders[0];
-  const trimW = sampleOrder?.trim_width_mm ?? 105.0;
-  const trimH = sampleOrder?.trim_height_mm ?? 148.0;
+  const trimW = sampleOrder?.trim_width_mm ?? 141.0;
+  const trimH = sampleOrder?.trim_height_mm ?? 141.0;
   const bleed = sampleOrder?.bleed_mm ?? 3.0;
 
   const {

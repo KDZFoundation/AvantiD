@@ -184,6 +184,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       }
     };
 
+    // Helper: Draw standard 4-corner registration marks (pasery drukarskie)
+    const drawRegistrationMark = (targetPage: any, x: number, y: number) => {
+      const r = 2.8 * MM_TO_PT;
+      targetPage.drawCircle({ x, y, size: r, borderColor: rgb(0, 0, 0), borderWidth: 0.5 });
+      targetPage.drawLine({ start: { x: x - r * 1.5, y }, end: { x: x + r * 1.5, y }, thickness: 0.5, color: rgb(0, 0, 0) });
+      targetPage.drawLine({ start: { x, y: y - r * 1.5 }, end: { x, y: y + r * 1.5 }, thickness: 0.5, color: rgb(0, 0, 0) });
+    };
+
     // Helper: Draw standard 4-corner crop marks (pasery / znaczniki cięcia netto)
     const drawCropMarks = (
       targetPage: any,
@@ -193,7 +201,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       trimHeightPt: number
     ) => {
       const cropLen = 8;
-      const cropOffset = 2;
+      const cropOffset = 1.5;
 
       // Top-Left
       targetPage.drawLine({
@@ -408,7 +416,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           // Draw Netto Crop Marks
           drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
         } else if (slotType === 'STACK_COVER') {
-          // STACK_COVER card (Gelato style stack cover card)
+          // STACK_COVER card (Gelato style stack cover card with artwork thumbnail and yellow footer)
           pageFront.drawRectangle({
             x: trimXPt,
             y: trimYPt,
@@ -419,78 +427,78 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             borderWidth: 0.5,
           });
 
-          const stackStr = `${item.stack_number || 1}/${item.total_stacks || 8}`;
+          const stackStr = `${item.stack_number || 1}/${item.total_stacks || 6}`;
 
           // Stack Title Box
           pageFront.drawText('Stack', {
             x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 22,
-            size: 11,
+            y: trimYPt + trimHeightPt - 20,
+            size: 10,
             font: fontHelveticaBold,
             color: rgb(0, 0, 0),
           });
 
           pageFront.drawText(stackStr, {
             x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 38,
-            size: 14,
+            y: trimYPt + trimHeightPt - 35,
+            size: 13,
             font: fontHelveticaBold,
             color: rgb(0, 0, 0),
           });
 
-          // Details
-          pageFront.drawText(String(item.order_id), {
+          // Order ID & Quantity
+          pageFront.drawText(String(item.barcode_value || item.order_id || '5871285154'), {
             x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 55,
-            size: 10,
+            y: trimYPt + trimHeightPt - 50,
+            size: 8.5,
             font: fontHelveticaBold,
             color: rgb(0, 0, 0),
           });
 
           pageFront.drawText(`Quantity: ${item.order_quantity || 0}`, {
             x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 68,
-            size: 8,
+            y: trimYPt + trimHeightPt - 62,
+            size: 7.5,
             font: fontHelveticaBold,
             color: rgb(0, 0, 0),
           });
 
           pageFront.drawText('FLAT CARD (2 PAGES)', {
             x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 80,
-            size: 7.5,
+            y: trimYPt + trimHeightPt - 73,
+            size: 7,
             font: fontHelveticaBold,
             color: rgb(0, 0, 0),
           });
 
-          pageFront.drawText(`Size: ${item.product_specs?.size || '105x148-mm'}`, {
+          pageFront.drawText(`Size: ${item.product_specs?.size || '141x141-mm'}`, {
             x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 90,
-            size: 7,
+            y: trimYPt + trimHeightPt - 83,
+            size: 6.5,
             font: fontHelvetica,
             color: rgb(0.2, 0.2, 0.2),
           });
 
           pageFront.drawText(`Paper: ${item.product_specs?.paper_weight_gsm || 300}-gsm-uncoated`, {
             x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 100,
-            size: 7,
+            y: trimYPt + trimHeightPt - 93,
+            size: 6.5,
             font: fontHelvetica,
             color: rgb(0.2, 0.2, 0.2),
           });
 
           pageFront.drawText('Coating: none', {
             x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 110,
-            size: 7,
+            y: trimYPt + trimHeightPt - 103,
+            size: 6.5,
             font: fontHelvetica,
             color: rgb(0.2, 0.2, 0.2),
           });
 
-          pageFront.drawText(`Plate: ${item.plate_id || '2954502725'}`, {
+          pageFront.drawText(`Plate: ${item.plate_id || '2954592808'}`, {
             x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 120,
-            size: 7,
+            y: trimYPt + trimHeightPt - 113,
+            size: 6.5,
             font: fontHelvetica,
             color: rgb(0.2, 0.2, 0.2),
           });
@@ -498,8 +506,8 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           if (item.customer_reference) {
             pageFront.drawText(item.customer_reference, {
               x: trimXPt + 10,
-              y: trimYPt + trimHeightPt - 132,
-              size: 8,
+              y: trimYPt + trimHeightPt - 124,
+              size: 7,
               font: fontHelveticaBold,
               color: rgb(0, 0, 0),
             });
@@ -507,61 +515,106 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
           pageFront.drawText(`Order ID: ${item.order_id}`, {
             x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 144,
-            size: 7,
+            y: trimYPt + trimHeightPt - 134,
+            size: 6.5,
             font: fontHelvetica,
             color: rgb(0.3, 0.3, 0.3),
           });
 
           pageFront.drawText('gelato-create', {
             x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 154,
-            size: 7,
+            y: trimYPt + trimHeightPt - 144,
+            size: 6.5,
             font: fontHelvetica,
-            color: rgb(0.3, 0.3, 0.3),
+            color: rgb(0.4, 0.4, 0.5),
           });
 
-          pageFront.drawText(item.order_index === 1 ? 'WC' : 'Q0', {
+          pageFront.drawText(item.order_index === 1 ? 'HI' : 'J7', {
+            x: trimXPt + 10,
+            y: trimYPt + trimHeightPt - 155,
+            size: 7.5,
+            font: fontHelveticaBold,
+            color: rgb(0, 0, 0),
+          });
+
+          pageFront.drawText(item.job_label || `Print job ${item.order_index || 1}/${item.total_orders || 2}`, {
             x: trimXPt + 10,
             y: trimYPt + trimHeightPt - 166,
-            size: 8,
+            size: 7.5,
             font: fontHelveticaBold,
             color: rgb(0, 0, 0),
           });
 
-          pageFront.drawText(item.job_label || 'Print job 1/2', {
-            x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 178,
-            size: 8,
-            font: fontHelveticaBold,
-            color: rgb(0, 0, 0),
-          });
+          // Artwork Thumbnail
+          const embedded = embeddedSourcesCache.get(item.pdf_source_url);
+          if (embedded && embedded.front) {
+            const thumbW = 44 * MM_TO_PT;
+            const thumbH = 44 * MM_TO_PT;
+            const thumbX = trimXPt + trimWidthPt - thumbW - 12;
+            const thumbY = trimYPt + trimHeightPt - thumbH - 24;
 
-          // Sorting instruction box at bottom
+            if (item.rotation_deg === 90) {
+              pageFront.drawPage(embedded.front, {
+                x: thumbX + thumbW,
+                y: thumbY,
+                width: thumbH,
+                height: thumbW,
+                rotate: degrees(90),
+              });
+            } else {
+              pageFront.drawPage(embedded.front, {
+                x: thumbX,
+                y: thumbY,
+                width: thumbW,
+                height: thumbH,
+              });
+            }
+
+            pageFront.drawRectangle({
+              x: thumbX,
+              y: thumbY,
+              width: thumbW,
+              height: thumbH,
+              borderColor: rgb(0.8, 0.8, 0.8),
+              borderWidth: 0.5,
+            });
+          }
+
+          // Yellow Bottom Info Footer
+          const footerH = 34;
           pageFront.drawRectangle({
-            x: trimXPt + 6,
-            y: trimYPt + 10,
-            width: trimWidthPt - 12,
-            height: 38,
-            color: rgb(0.96, 0.96, 0.96),
-            borderColor: rgb(0.8, 0.8, 0.8),
-            borderWidth: 0.5,
+            x: trimXPt,
+            y: trimYPt,
+            width: trimWidthPt,
+            height: footerH,
+            color: rgb(1, 0.95, 0.05), // #FFE600
           });
 
           pageFront.drawText(`Dispatch date: ${item.dispatch_date || '2026-08-24'}`, {
-            x: trimXPt + 10,
-            y: trimYPt + 36,
-            size: 6.5,
-            font: fontHelvetica,
-            color: rgb(0.3, 0.3, 0.3),
-          });
-
-          pageFront.drawText('Remove this top card during sorting', {
-            x: trimXPt + 10,
-            y: trimYPt + 18,
+            x: trimXPt + 8,
+            y: trimYPt + footerH - 9,
             size: 6.5,
             font: fontHelveticaBold,
-            color: rgb(0.8, 0.1, 0.1),
+            color: rgb(0, 0, 0),
+          });
+
+          pageFront.drawText(
+            `FLAT CARD (2 PAGES)  |  ${item.product_specs?.paper_weight_gsm || 300}-gsm-uncoated  |  ${item.product_specs?.size || '141x141-mm'}`,
+            {
+              x: trimXPt + 8,
+              y: trimYPt + footerH - 18,
+              size: 5.5,
+              font: fontHelvetica,
+              color: rgb(0.15, 0.15, 0.15),
+            }
+          );
+
+          pageFront.drawText('Remove this top card during sorting', {
+            x: trimXPt + 8,
+            y: trimYPt + 5,
+            size: 6.5,
+            font: fontHelvetica,
+            color: rgb(0, 0, 0),
           });
 
           drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
@@ -626,23 +679,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
           drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
         } else if (slotType === 'WASTE_SLOT') {
-          // 2. WASTE_SLOT
+          // 2. WASTE_SLOT (Front: Solid Bright Yellow Card)
           pageFront.drawRectangle({
             x: trimXPt,
             y: trimYPt,
             width: trimWidthPt,
             height: trimHeightPt,
-            color: rgb(1, 1, 1),
-            borderColor: rgb(0.95, 0.75, 0.1),
-            borderWidth: 1.5,
-          });
-
-          pageFront.drawText('[ SLOT ODPADU ]', {
-            x: trimXPt + trimWidthPt / 2 - 28,
-            y: trimYPt + trimHeightPt / 2 - 3,
-            size: 7,
-            font: fontHelveticaBold,
-            color: rgb(0.8, 0.6, 0.05),
+            color: rgb(1, 0.95, 0.05), // Vibrant yellow
           });
 
           drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
@@ -757,24 +800,53 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         });
       }
 
-      // Front Header Slug & Plate ID
-      const plateIdText = job.result.sheets[0]?.placed_items[0]?.plate_id || job.id;
-      const plateSlugFront = `${plateIdText} sheet ${sheetLayout.sheet_index}/${job.result.sheets.length}`;
-      pageFront.drawText(plateSlugFront, {
-        x: sheetWidthPt - 140,
-        y: sheetHeightPt - 12,
-        size: 8,
+      // Draw 4-Corner Registration Marks (Pasery drukarskie)
+      drawRegistrationMark(pageFront, 12, 12);
+      drawRegistrationMark(pageFront, sheetWidthPt - 12, 12);
+      drawRegistrationMark(pageFront, 12, sheetHeightPt - 12);
+      drawRegistrationMark(pageFront, sheetWidthPt - 12, sheetHeightPt - 12);
+
+      // Vertical Margin Marks: "No protection" in cyan
+      pageFront.drawText('No protection', {
+        x: 10,
+        y: sheetHeightPt / 2 - 35,
+        size: 14,
         font: fontHelvetica,
-        color: rgb(0, 0, 0),
+        color: rgb(0, 0.85, 0.95),
+        rotate: degrees(90),
       });
+
+      pageFront.drawText('No protection', {
+        x: sheetWidthPt - 10,
+        y: sheetHeightPt / 2 + 35,
+        size: 14,
+        font: fontHelvetica,
+        color: rgb(0, 0.85, 0.95),
+        rotate: degrees(270),
+      });
+
+      // Front Header Slug & Plate ID
+      const plateIdText = job.result.sheets[0]?.placed_items[0]?.plate_id || '2954592808';
+      const plateSlugFront = `${plateIdText}    sheet ${sheetLayout.sheet_index}/${job.result.sheets.length}`;
+      pageFront.drawText(plateSlugFront, {
+        x: sheetWidthPt - 150,
+        y: sheetHeightPt - 12,
+        size: 7.5,
+        font: fontHelvetica,
+        color: rgb(0.85, 0.15, 0.15),
+      });
+
+      if (sheetLayout.sheet_index === 1) {
+        drawBarcode1D(pageFront, plateIdText, 25, sheetHeightPt - 28, 14, 45);
+      }
 
       const slugTextFront = `POD IMPOSITION | Job ID: ${job.id} | Workflow: ${job.workflow} | ${sheetLayout.sheet_name} [FRONT / AWERS] | Yield: ${sheetLayout.sheet_yield_percentage}%`;
       pageFront.drawText(slugTextFront, {
-        x: marginPt,
-        y: sheetHeightPt - marginPt / 2 - 3,
-        size: 7,
+        x: 80,
+        y: sheetHeightPt - 12,
+        size: 6.5,
         font: fontHelvetica,
-        color: rgb(0.3, 0.35, 0.45),
+        color: rgb(0.35, 0.4, 0.5),
       });
 
       // ==========================================
@@ -926,22 +998,51 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
           drawCropMarks(pageBack, backTrimXPt, trimYPt, trimWidthPt, trimHeightPt);
         } else if (slotType === 'WASTE_SLOT') {
+          // WASTE_SLOT (Back: Solid Yellow Card with Barcode & Job Label)
           pageBack.drawRectangle({
             x: backTrimXPt,
             y: trimYPt,
             width: trimWidthPt,
             height: trimHeightPt,
-            color: rgb(1, 1, 1),
-            borderColor: rgb(0.95, 0.75, 0.1),
-            borderWidth: 1.5,
+            color: rgb(1, 0.95, 0.05), // #FFE600
           });
 
-          pageBack.drawText('[ SLOT ODPADU - REWERS ]', {
-            x: backTrimXPt + trimWidthPt / 2 - 35,
-            y: trimYPt + trimHeightPt / 2 - 3,
-            size: 6.5,
+          const printJobLabel = item.job_label || `Print job ${item.order_index || 2}/${item.total_orders || 2}`;
+          pageBack.drawText(printJobLabel, {
+            x: backTrimXPt + 15,
+            y: trimYPt + trimHeightPt - 28,
+            size: 8,
             font: fontHelveticaBold,
-            color: rgb(0.8, 0.6, 0.05),
+            color: rgb(0, 0, 0),
+          });
+
+          // Letter Badge (e.g. HI for order 1, J7 for order 2)
+          const badgeCode = item.order_index === 1 ? 'HI' : 'J7';
+          pageBack.drawRectangle({
+            x: backTrimXPt + 15,
+            y: trimYPt + 48,
+            width: 22,
+            height: 22,
+            color: rgb(0.2, 0.55, 0.9),
+          });
+
+          pageBack.drawText(badgeCode, {
+            x: backTrimXPt + 20,
+            y: trimYPt + 54,
+            size: 10,
+            font: fontHelveticaBold,
+            color: rgb(1, 1, 1),
+          });
+
+          const wasteBarcode = item.barcode_value || (item.order_index === 1 ? '7112210864' : '7112210972');
+          drawBarcode1D(pageBack, wasteBarcode, backTrimXPt + 15, trimYPt + 16, 20, 60);
+
+          pageBack.drawText(wasteBarcode, {
+            x: backTrimXPt + 18,
+            y: trimYPt + 7,
+            size: 6,
+            font: fontHelvetica,
+            color: rgb(0, 0, 0),
           });
 
           drawCropMarks(pageBack, backTrimXPt, trimYPt, trimWidthPt, trimHeightPt);
@@ -1010,23 +1111,48 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         });
       }
 
-      // Back Header Slug & Plate ID
-      const plateSlugBack = `${plateIdText} sheet ${sheetLayout.sheet_index}/${job.result.sheets.length}`;
-      pageBack.drawText(plateSlugBack, {
-        x: sheetWidthPt - 140,
-        y: sheetHeightPt - 12,
-        size: 8,
+      // Draw 4-Corner Registration Marks on Back (Pasery drukarskie)
+      drawRegistrationMark(pageBack, 12, 12);
+      drawRegistrationMark(pageBack, sheetWidthPt - 12, 12);
+      drawRegistrationMark(pageBack, 12, sheetHeightPt - 12);
+      drawRegistrationMark(pageBack, sheetWidthPt - 12, sheetHeightPt - 12);
+
+      // Vertical Margin Marks on Back: "No protection" in cyan
+      pageBack.drawText('No protection', {
+        x: 10,
+        y: sheetHeightPt / 2 - 35,
+        size: 14,
         font: fontHelvetica,
-        color: rgb(0, 0, 0),
+        color: rgb(0, 0.85, 0.95),
+        rotate: degrees(90),
+      });
+
+      pageBack.drawText('No protection', {
+        x: sheetWidthPt - 10,
+        y: sheetHeightPt / 2 + 35,
+        size: 14,
+        font: fontHelvetica,
+        color: rgb(0, 0.85, 0.95),
+        rotate: degrees(270),
+      });
+
+      // Back Header Slug & Plate ID
+      const plateSlugBack = `${plateIdText}    sheet ${sheetLayout.sheet_index}/${job.result.sheets.length}`;
+      pageBack.drawText(plateSlugBack, {
+        x: sheetWidthPt - 150,
+        y: sheetHeightPt - 12,
+        size: 7.5,
+        font: fontHelvetica,
+        color: rgb(0.85, 0.15, 0.15),
       });
 
       const slugTextBack = `POD IMPOSITION | Job ID: ${job.id} | Workflow: ${job.workflow} | ${sheetLayout.sheet_name} [BACK / REWERS] | Yield: ${sheetLayout.sheet_yield_percentage}%`;
       pageBack.drawText(slugTextBack, {
-        x: marginPt,
-        y: sheetHeightPt - marginPt / 2 - 3,
-        size: 7,
+        x: 80,
+        y: sheetHeightPt - 12,
+        size: 6.5,
         font: fontHelvetica,
-        color: rgb(0.3, 0.35, 0.45),
+        color: rgb(0.35, 0.4, 0.5),
       });
     }
 

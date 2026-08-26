@@ -9,8 +9,10 @@ export interface SheetConfig {
   height_mm: number;
   margins_mm: number;
   gripper_margin_mm: number;
+  gutter_mm?: number; // Distance between items in grid (e.g. 0 mm for common cut, 6 mm for double-cut)
   paper_weight_gsm?: number;
   grain_direction?: 'LONG' | 'SHORT';
+  coating?: string; // e.g. 'none' | 'No protection' | 'Gloss' | 'Soft Touch'
 }
 
 export type PlacedItemSlotType =
@@ -33,6 +35,7 @@ export interface OrderItem {
   priority?: number;
   paper_weight_gsm?: number;
   paper_finish?: string;
+  coating?: string;
 }
 
 export interface ImpositionJobPayload {

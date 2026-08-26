@@ -107,11 +107,13 @@ export async function updateJobInStore(jobId: string, updates: Partial<Impositio
   const existing = memoryJobs.get(jobId);
   if (existing) {
     memoryJobs.set(jobId, { ...existing, ...updates });
+  } else {
+    memoryJobs.set(jobId, { id: jobId, ...updates } as ImpositionJob);
   }
 
   try {
     const docRef = adminDb.collection('imposition_jobs').doc(jobId);
-    await docRef.update(updates as any);
+    await docRef.set(updates, { merge: true });
     isFirestoreQuotaExceeded = false;
   } catch (err: any) {
     if (isQuotaError(err)) {

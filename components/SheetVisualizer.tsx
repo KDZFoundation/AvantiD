@@ -176,6 +176,65 @@ export const SheetVisualizer: React.FC<SheetVisualizerProps> = ({
             {/* Base paper sheet */}
             <rect x="0" y="0" width={viewBoxWidth} height={viewBoxHeight} fill="url(#wastePattern)" stroke="#4b5563" strokeWidth="1" />
 
+            {/* Vertical Margin Finishing Text Marks */}
+            <text
+              x="6"
+              y={viewBoxHeight / 2}
+              fill="#06b6d4"
+              fontSize="7"
+              fontWeight="bold"
+              fontFamily="sans-serif"
+              transform={`rotate(-90, 6, ${viewBoxHeight / 2})`}
+              textAnchor="middle"
+              pointerEvents="none"
+            >
+              No protection
+            </text>
+
+            <text
+              x={viewBoxWidth - 6}
+              y={viewBoxHeight / 2}
+              fill="#06b6d4"
+              fontSize="7"
+              fontWeight="bold"
+              fontFamily="sans-serif"
+              transform={`rotate(90, ${viewBoxWidth - 6}, ${viewBoxHeight / 2})`}
+              textAnchor="middle"
+              pointerEvents="none"
+            >
+              No protection
+            </text>
+
+            {/* Top plate ID in red */}
+            <text
+              x={viewBoxWidth - 10}
+              y="9"
+              fill="#dc2626"
+              fontSize="4.5"
+              fontWeight="bold"
+              fontFamily="monospace"
+              textAnchor="end"
+              pointerEvents="none"
+            >
+              2954592808 sheet {currentSheetIndex}/{allSheetsCount}
+            </text>
+
+            {/* 4 Corner Registration Crosshairs */}
+            <g pointerEvents="none">
+              {[
+                { cx: 7, cy: 7 },
+                { cx: viewBoxWidth - 7, cy: 7 },
+                { cx: 7, cy: viewBoxHeight - 7 },
+                { cx: viewBoxWidth - 7, cy: viewBoxHeight - 7 },
+              ].map((pos, idx) => (
+                <g key={idx}>
+                  <circle cx={pos.cx} cy={pos.cy} r="3" fill="none" stroke="#000000" strokeWidth="0.4" />
+                  <line x1={pos.cx - 4.5} y1={pos.cy} x2={pos.cx + 4.5} y2={pos.cy} stroke="#000000" strokeWidth="0.4" />
+                  <line x1={pos.cx} y1={pos.cy - 4.5} x2={pos.cx} y2={pos.cy + 4.5} stroke="#000000" strokeWidth="0.4" />
+                </g>
+              ))}
+            </g>
+
             {/* Color control strip on top margin */}
             <g transform={`translate(${viewBoxWidth / 2 - 80}, ${viewBoxHeight - 6})`}>
               <rect x="0" y="0" width="20" height="4" fill="#00ffff" stroke="#000" strokeWidth="0.2" />
@@ -216,6 +275,68 @@ export const SheetVisualizer: React.FC<SheetVisualizerProps> = ({
                   )}
 
                   {/* Render based on slot_type */}
+                  {slotType === 'STACK_COVER' && (
+                    <g>
+                      {/* White stack cover card */}
+                      <rect
+                        x={item.trim_box.x1}
+                        y={item.trim_box.y1}
+                        width={item.trim_width_mm}
+                        height={item.trim_height_mm}
+                        fill="#ffffff"
+                        stroke="#0f172a"
+                        strokeWidth="1.2"
+                      />
+
+                      {/* Header Stack Title */}
+                      <g pointerEvents="none" className="font-sans">
+                        <text x={item.trim_box.x1 + 4} y={item.trim_box.y1 + 8} fill="#0f172a" fontSize="5" fontWeight="bold">
+                          Stack {item.stack_number || 1}/{item.total_stacks || 6}
+                        </text>
+                        <text x={item.trim_box.x1 + 4} y={item.trim_box.y1 + 14} fill="#0f172a" fontSize="4.2" fontWeight="bold">
+                          {item.barcode_value || item.order_id} (Nakład: {item.order_quantity || 0})
+                        </text>
+                        <text x={item.trim_box.x1 + 4} y={item.trim_box.y1 + 19} fill="#475569" fontSize="3.6">
+                          FLAT CARD (2 PAGES) | {item.product_specs?.size || '141x141-mm'}
+                        </text>
+                        <text x={item.trim_box.x1 + 4} y={item.trim_box.y1 + 24} fill="#475569" fontSize="3.6">
+                          Klient: {item.customer_reference || 'Customer'}
+                        </text>
+                        <text x={item.trim_box.x1 + 4} y={item.trim_box.y1 + 29} fill="#475569" fontSize="3.6">
+                          Plate: {item.plate_id || '2954592808'} | {item.job_label || 'Print job 1/2'}
+                        </text>
+                      </g>
+
+                      {/* Artwork Thumbnail Miniature */}
+                      <g transform={`translate(${item.trim_box.x1 + item.trim_width_mm - 46}, ${item.trim_box.y1 + 6})`}>
+                        <rect width="40" height="40" fill="#f8fafc" stroke="#cbd5e1" strokeWidth="0.8" rx="1" />
+                        <rect x="4" y="4" width="32" height="32" fill="#e0f2fe" stroke="#38bdf8" strokeWidth="0.5" />
+                        <text x="20" y="22" fill="#0284c7" fontSize="4" fontWeight="bold" textAnchor="middle">
+                          MINIATURA
+                        </text>
+                      </g>
+
+                      {/* Yellow Bottom Footer Bar */}
+                      <rect
+                        x={item.trim_box.x1}
+                        y={item.trim_box.y1 + item.trim_height_mm - 14}
+                        width={item.trim_width_mm}
+                        height="14"
+                        fill="#facc15"
+                        stroke="#ca8a04"
+                        strokeWidth="0.5"
+                      />
+                      <g pointerEvents="none" className="font-sans">
+                        <text x={item.trim_box.x1 + 3} y={item.trim_box.y1 + item.trim_height_mm - 8} fill="#0f172a" fontSize="3.6" fontWeight="bold">
+                          Dispatch: {item.dispatch_date || '2026-08-24'} | FLAT CARD | 300g
+                        </text>
+                        <text x={item.trim_box.x1 + 3} y={item.trim_box.y1 + item.trim_height_mm - 3} fill="#713f12" fontSize="3.2" fontWeight="bold">
+                          Remove this top card during sorting
+                        </text>
+                      </g>
+                    </g>
+                  )}
+
                   {slotType === 'ORDER_INFO_PANEL' && (
                     <g>
                       {/* Chessboard / CMYK calibration pattern background */}
@@ -258,28 +379,38 @@ export const SheetVisualizer: React.FC<SheetVisualizerProps> = ({
 
                   {slotType === 'WASTE_SLOT' && (
                     <g>
-                      {/* White fill with thick yellow border */}
+                      {/* Solid yellow filled card */}
                       <rect
                         x={item.trim_box.x1}
                         y={item.trim_box.y1}
                         width={item.trim_width_mm}
                         height={item.trim_height_mm}
-                        fill="#ffffff"
-                        stroke="#eab308"
-                        strokeWidth="1.8"
+                        fill="#facc15"
+                        stroke="#ca8a04"
+                        strokeWidth="1.2"
                       />
                       {showLabels && (
                         <g pointerEvents="none">
                           <text
                             x={item.trim_box.x1 + item.trim_width_mm / 2}
-                            y={item.trim_box.y1 + item.trim_height_mm / 2}
-                            fill="#ca8a04"
+                            y={item.trim_box.y1 + item.trim_height_mm / 2 - 2}
+                            fill="#854d0e"
                             fontSize="5.5"
                             fontWeight="bold"
                             textAnchor="middle"
                             fontFamily="monospace"
                           >
-                            [ SLOT ODPADU ]
+                            [ ŻÓŁTY SEPARATOR ODPADU ]
+                          </text>
+                          <text
+                            x={item.trim_box.x1 + item.trim_width_mm / 2}
+                            y={item.trim_box.y1 + item.trim_height_mm / 2 + 6}
+                            fill="#a16207"
+                            fontSize="4.2"
+                            textAnchor="middle"
+                            fontFamily="sans-serif"
+                          >
+                            {item.job_label || 'WASTE FILLER'}
                           </text>
                         </g>
                       )}
