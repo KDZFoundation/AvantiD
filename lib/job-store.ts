@@ -1,15 +1,54 @@
 import { ImpositionJob } from '@/types/imposition';
 import { adminDb } from './firebase-admin';
 import firebaseConfig from '../firebase-applet-config.json';
+import { PRESETS } from './presets';
 
 // In-memory fallback and caching store
 const memoryJobs = new Map<string, ImpositionJob>();
 let isFirestoreQuotaExceeded = false;
 let lastQuotaCheckTime = 0;
+let isStoreInitialized = false;
 
 export const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || firebaseConfig.projectId || 'avanti-2adfd';
 export const FIRESTORE_DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || firebaseConfig.firestoreDatabaseId || 'ai-studio-podimpositionapi-cd763197-25ef-4268-a1c7-f11afc442ec5';
 export const FIREBASE_UPGRADE_URL = `https://console.firebase.google.com/project/${FIREBASE_PROJECT_ID}/firestore/databases/${FIRESTORE_DATABASE_ID}/data?openUpgradeDialog=true`;
+
+async function seedInitialJobsIfEmpty() {
+  if (memoryJobs.size > 0) return;
+
+  try {
+    const { runInternalLayoutEngine } = await import('./imposition-engine');
+    const baseTime = Date.now();
+    PRESETS.forEach((preset, idx) => {
+      const jobId = `job_preset_${preset.id.replace(/-/g, '_')}`;
+      if (!memoryJobs.has(jobId)) {
+        const createdAt = new Date(baseTime - (idx + 1) * 3600000).toISOString();
+        const result = runInternalLayoutEngine(jobId, preset.payload, baseTime);
+        const job: ImpositionJob = {
+          id: jobId,
+          name: preset.payload.name || preset.name,
+          workflow: preset.payload.workflow,
+          device_type: preset.payload.device_type,
+          sheet: preset.payload.sheet,
+          orders: preset.payload.orders,
+          pdf_standard: preset.payload.pdf_standard,
+          status: 'COMPLETED',
+          created_at: createdAt,
+          started_at: createdAt,
+          completed_at: createdAt,
+          updated_at: createdAt,
+          result: result,
+        };
+        memoryJobs.set(jobId, job);
+      }
+    });
+  } catch (seedErr) {
+    console.warn('[JobStore] Error seeding default jobs:', seedErr);
+  }
+}
+
+// Pre-seed asynchronously on module load
+seedInitialJobsIfEmpty();
 
 function isQuotaError(err: any): boolean {
   if (!err) return false;
@@ -180,6 +219,10 @@ export async function listJobsFromStore(filters: {
         console.error('[JobStore] Firestore list error:', err);
       }
     }
+  }
+
+  if (memoryJobs.size === 0) {
+    await seedInitialJobsIfEmpty();
   }
 
   // Fallback: return from in-memory store

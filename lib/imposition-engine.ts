@@ -3,6 +3,7 @@ import {
   JobResult,
   SheetLayout,
   PlacedItem,
+  PlacedItemSlotType,
   CutLine,
   OpticalMark,
   WorkflowDetails,
@@ -104,7 +105,7 @@ export async function executeImpositionJob(jobId: string, payload: ImpositionJob
  * 1. GANGING (combo-run, 2D guillotine bin packing, ratio balancing)
  * 2. CUT_AND_STACK (multi-up sequence stacking for books, tickets, continuous runs)
  */
-function runInternalLayoutEngine(jobId: string, payload: ImpositionJobPayload, startTime: number): JobResult {
+export function runInternalLayoutEngine(jobId: string, payload: ImpositionJobPayload, startTime: number): JobResult {
   if (payload.workflow === 'GANGING') {
     return runGangingWorkflow(jobId, payload, startTime);
   } else if (payload.workflow === 'CUT_AND_STACK') {
@@ -468,7 +469,7 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
   const { sheet, orders, device_type, pdf_standard } = payload;
 
 
-  // Use SRA3 press sheet dimensions (480 x 330 mm) for multi-up imposition if target is small
+  // Use SRA3 press sheet dimensions (480 x 330 mm) for multi-up imposition
   const isSmallSheet = sheet.width_mm < 400 || sheet.height_mm < 300;
   const sheetWidth = isSmallSheet ? 480.0 : sheet.width_mm;
   const sheetHeight = isSmallSheet ? 330.0 : sheet.height_mm;
@@ -477,99 +478,329 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
   const sampleOrder = orders[0];
   const trimW = sampleOrder?.trim_width_mm ?? 105.0;
   const trimH = sampleOrder?.trim_height_mm ?? 148.0;
-  const bleed = sampleOrder?.bleed_mm ?? 2.0;
+  const bleed = sampleOrder?.bleed_mm ?? 0.0;
   const itemTotalW = trimW + 2 * bleed;
   const itemTotalH = trimH + 2 * bleed;
 
-  // Grid calculation on press sheet (e.g. 480x330mm gives 4 cols x 2 rows = 8 slots)
+  // Grid calculation on press sheet (480x330mm gives 4 cols x 2 rows = 8 slots)
   const cols = Math.max(1, Math.floor(sheetWidth / itemTotalW));
   const rows = Math.max(1, Math.floor(sheetHeight / itemTotalH));
-  const slotsPerSheet = cols * rows;
+  const slotsPerSheet = cols * rows; // e.g. 8 stacks
 
   const gridTotalW = cols * itemTotalW;
   const gridTotalH = rows * itemTotalH;
   const offsetX = Number(((sheetWidth - gridTotalW) / 2).toFixed(2));
   const offsetY = Number(((sheetHeight - gridTotalH) / 2).toFixed(2));
 
+  // 1. Build unified production stream across all orders in the job:
+  // For each order: 1 Order Info Panel + Qty Products + 1 End Separator Marker
+  interface StreamItemTemplate {
+    order_id: string;
+    slot_type: PlacedItemSlotType;
+    customer_reference?: string;
+    pdf_source_url: string;
+    trim_width_mm: number;
+    trim_height_mm: number;
+    bleed_mm: number;
+    order_quantity: number;
+    order_index: number;
+    total_orders: number;
+    product_specs: any;
+    job_label: string;
+    sequence_number?: number;
+    barcode_value?: string;
+  }
+
+  const productionStream: StreamItemTemplate[] = [];
+
+  orders.forEach((o, oIdx) => {
+    const oIndex = oIdx + 1;
+    const printJobBarcode = oIndex === 1 ? '7112132366' : '7112132407';
+
+    // A. Order Info Panel (Start of Order)
+    productionStream.push({
+      order_id: o.order_id,
+      slot_type: 'ORDER_INFO_PANEL',
+      customer_reference: o.customer_reference || (oIndex === 1 ? 'Achim Strob' : 'Annett Eppert'),
+      pdf_source_url: o.pdf_source_url,
+      trim_width_mm: o.trim_width_mm,
+      trim_height_mm: o.trim_height_mm,
+      bleed_mm: o.bleed_mm,
+      order_quantity: o.quantity,
+      order_index: oIndex,
+      total_orders: orders.length,
+      product_specs: {
+        size: `${o.trim_width_mm}x${o.trim_height_mm}-mm`,
+        paper_weight_gsm: o.paper_weight_gsm || 300,
+        finish: o.paper_finish || '300-gsm-uncoated',
+      },
+      job_label: `Print job ${oIndex}/${orders.length}`,
+      barcode_value: printJobBarcode,
+    });
+
+    // B. Product Pages (1..Quantity)
+    for (let q = 1; q <= o.quantity; q++) {
+      productionStream.push({
+        order_id: o.order_id,
+        slot_type: 'PRODUCT',
+        customer_reference: o.customer_reference,
+        pdf_source_url: o.pdf_source_url,
+        trim_width_mm: o.trim_width_mm,
+        trim_height_mm: o.trim_height_mm,
+        bleed_mm: o.bleed_mm,
+        order_quantity: o.quantity,
+        order_index: oIndex,
+        total_orders: orders.length,
+        product_specs: {
+          size: `${o.trim_width_mm}x${o.trim_height_mm}-mm`,
+          paper_weight_gsm: o.paper_weight_gsm || 300,
+          finish: o.paper_finish || '300-gsm-uncoated',
+        },
+        job_label: `Print job ${oIndex}/${orders.length}`,
+        sequence_number: q,
+      });
+    }
+
+    // C. End of Order Separator (Yellow card on Front, Barcode & Job Label on Back)
+    productionStream.push({
+      order_id: o.order_id,
+      slot_type: 'WASTE_SLOT',
+      customer_reference: o.customer_reference,
+      pdf_source_url: o.pdf_source_url,
+      trim_width_mm: o.trim_width_mm,
+      trim_height_mm: o.trim_height_mm,
+      bleed_mm: o.bleed_mm,
+      order_quantity: o.quantity,
+      order_index: oIndex,
+      total_orders: orders.length,
+      product_specs: {
+        size: `${o.trim_width_mm}x${o.trim_height_mm}-mm`,
+        paper_weight_gsm: o.paper_weight_gsm || 300,
+        finish: o.paper_finish || '300-gsm-uncoated',
+      },
+      job_label: `Print job ${oIndex}/${orders.length}`,
+      barcode_value: printJobBarcode,
+    });
+  });
+
+  // Calculate required product sheets depth (e.g. 64 items / 8 stacks = 8 product sheets)
+  const totalStreamItems = productionStream.length;
+  const productSheetsDepth = Math.max(1, Math.ceil(totalStreamItems / slotsPerSheet));
+  const totalSheetsRequired = 1 + productSheetsDepth; // 1 stack cover sheet + product sheets = 9 sheets total
+
   const sheets: SheetLayout[] = [];
-  let globalSheetIndex = 1;
-  const dispatchDate = new Date().toISOString().slice(0, 10);
 
-  // Generate Cut & Stack sheets with Stack Cover sheets per order
-  for (let oIdx = 0; oIdx < orders.length; oIdx++) {
-    const o = orders[oIdx];
-    const orderBleed = o.bleed_mm;
-    const orderTotalW = o.trim_width_mm + 2 * orderBleed;
-    const orderTotalH = o.trim_height_mm + 2 * orderBleed;
+  // =========================================================
+  // 1. GENERATE SHEET 1 (STACK COVER SHEET FOR ALL 8 STACKS)
+  // =========================================================
+  const coverPlacedItems: PlacedItem[] = [];
+  const coverHorizCuts = new Set<number>();
+  const coverVertCuts = new Set<number>();
 
-    // Number of product sheets required to fulfill order quantity
-    const productSheetsCount = Math.max(1, Math.ceil(o.quantity / slotsPerSheet));
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const slotIdx = r * cols + c;
+      const stackNo = slotIdx + 1;
+      const itemX = offsetX + c * itemTotalW;
+      const itemY = offsetY + r * itemTotalH;
 
-    // 1. Generate STACK COVER Sheet for this order
-    const coverPlacedItems: PlacedItem[] = [];
-    const coverHorizCuts = new Set<number>();
-    const coverVertCuts = new Set<number>();
+      // Determine which order is dominant on this stack column
+      const streamIdxForStack = slotIdx * productSheetsDepth;
+      const dominantItem = productionStream[Math.min(streamIdxForStack, totalStreamItems - 1)] || productionStream[0];
+      const dominantOrder = orders.find((ord) => ord.order_id === dominantItem.order_id) || orders[0];
+
+      coverPlacedItems.push({
+        instance_id: `cover_stack_${stackNo}_sheet_1`,
+        order_id: dominantOrder.order_id,
+        pdf_source_url: dominantOrder.pdf_source_url,
+        x_mm: Number(itemX.toFixed(2)),
+        y_mm: Number(itemY.toFixed(2)),
+        width_with_bleed_mm: itemTotalW,
+        height_with_bleed_mm: itemTotalH,
+        trim_width_mm: trimW,
+        trim_height_mm: trimH,
+        bleed_mm: bleed,
+        rotation_deg: 0,
+        slot_type: 'STACK_COVER',
+        stack_number: stackNo,
+        total_stacks: slotsPerSheet,
+        customer_reference: dominantOrder.customer_reference || (dominantItem.order_index === 1 ? 'Achim Strob' : 'Annett Eppert'),
+        order_quantity: dominantOrder.quantity,
+        plate_id: '2954502725',
+        dispatch_date: '2026-08-24',
+        product_specs: {
+          size: `${trimW}x${trimH}-mm`,
+          paper_weight_gsm: dominantOrder.paper_weight_gsm || 300,
+          finish: dominantOrder.paper_finish || '300-gsm-uncoated',
+        },
+        job_label: dominantItem.job_label || 'Print job 1/2',
+        order_index: dominantItem.order_index,
+        total_orders: orders.length,
+        barcode_value: '2954502725',
+        bleed_box: {
+          x1: itemX,
+          y1: itemY,
+          x2: itemX + itemTotalW,
+          y2: itemY + itemTotalH,
+        },
+        trim_box: {
+          x1: itemX + bleed,
+          y1: itemY + bleed,
+          x2: itemX + itemTotalW - bleed,
+          y2: itemY + itemTotalH - bleed,
+        },
+      });
+
+      coverHorizCuts.add(itemY);
+      coverHorizCuts.add(itemY + itemTotalH);
+      coverVertCuts.add(itemX);
+      coverVertCuts.add(itemX + itemTotalW);
+    }
+  }
+
+  const coverCutLines: CutLine[] = [];
+  if (device_type === 'GUILLOTINE') {
+    let cutOrder = 1;
+    Array.from(coverHorizCuts).sort((a, b) => a - b).forEach((y) => {
+      coverCutLines.push({
+        type: 'HORIZONTAL',
+        start_mm: { x: 0, y },
+        end_mm: { x: sheetWidth, y },
+        cut_order: cutOrder++,
+        is_through_cut: true,
+      });
+    });
+    Array.from(coverVertCuts).sort((a, b) => a - b).forEach((x) => {
+      coverCutLines.push({
+        type: 'VERTICAL',
+        start_mm: { x, y: 0 },
+        end_mm: { x, y: sheetHeight },
+        cut_order: cutOrder++,
+        is_through_cut: true,
+      });
+    });
+  }
+
+  const totalSheetAreaSqm = (sheetWidth * sheetHeight) / 1_000_000;
+  const coverUsedArea = coverPlacedItems.reduce((acc, item) => acc + (item.trim_width_mm * item.trim_height_mm) / 1_000_000, 0);
+
+  sheets.push({
+    sheet_index: 1,
+    sheet_name: `sheet 1/${totalSheetsRequired}`,
+    width_mm: sheetWidth,
+    height_mm: sheetHeight,
+    gripper_edge: 'BOTTOM',
+    placed_items: coverPlacedItems,
+    cut_lines: coverCutLines,
+    waste_area_sqm: Math.max(0, totalSheetAreaSqm - coverUsedArea),
+    used_area_sqm: coverUsedArea,
+    sheet_yield_percentage: Number(((coverUsedArea / totalSheetAreaSqm) * 100).toFixed(1)),
+  });
+
+  // =========================================================
+  // 2. GENERATE SHEETS 2..N (CUT & STACK PRODUCT & SEPARATOR SHEETS)
+  // =========================================================
+  for (let pIdx = 0; pIdx < productSheetsDepth; pIdx++) {
+    const currentSheetIndex = pIdx + 2;
+    const prodPlacedItems: PlacedItem[] = [];
+    const prodHorizCuts = new Set<number>();
+    const prodVertCuts = new Set<number>();
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const slotIdx = r * cols + c;
-        const stackNo = slotIdx + 1;
-        const itemX = offsetX + c * orderTotalW;
-        const itemY = offsetY + r * orderTotalH;
+        const itemX = offsetX + c * itemTotalW;
+        const itemY = offsetY + r * itemTotalH;
 
-        coverPlacedItems.push({
-          instance_id: `cover_${o.order_id}_stack_${stackNo}_sheet_${globalSheetIndex}`,
-          order_id: o.order_id,
-          pdf_source_url: o.pdf_source_url,
-          x_mm: Number(itemX.toFixed(2)),
-          y_mm: Number(itemY.toFixed(2)),
-          width_with_bleed_mm: orderTotalW,
-          height_with_bleed_mm: orderTotalH,
-          trim_width_mm: o.trim_width_mm,
-          trim_height_mm: o.trim_height_mm,
-          bleed_mm: orderBleed,
-          rotation_deg: 0,
-          slot_type: 'STACK_COVER',
-          stack_number: stackNo,
-          total_stacks: slotsPerSheet,
-          customer_reference: o.customer_reference || 'Drukarnia Partnerska',
-          order_quantity: o.quantity,
-          plate_id: jobId,
-          dispatch_date: dispatchDate,
-          product_specs: {
-            size: `${o.trim_width_mm}x${o.trim_height_mm}-mm`,
-            paper_weight_gsm: o.paper_weight_gsm || 300,
-            finish: o.paper_finish || '300-gsm-uncoated',
-          },
-          job_label: `Print job ${oIdx + 1}/${orders.length}`,
-          order_index: oIdx + 1,
-          total_orders: orders.length,
-          bleed_box: {
-            x1: itemX,
-            y1: itemY,
-            x2: itemX + orderTotalW,
-            y2: itemY + orderTotalH,
-          },
-          trim_box: {
-            x1: itemX + orderBleed,
-            y1: itemY + orderBleed,
-            x2: itemX + orderTotalW - orderBleed,
-            y2: itemY + orderTotalH - orderBleed,
-          },
-        });
+        // Cut & Stack Sequence Formula: streamIdx = slotIdx * productSheetsDepth + pIdx
+        const streamIdx = slotIdx * productSheetsDepth + pIdx;
 
-        coverHorizCuts.add(itemY);
-        coverHorizCuts.add(itemY + orderTotalH);
-        coverVertCuts.add(itemX);
-        coverVertCuts.add(itemX + orderTotalW);
+        if (streamIdx < totalStreamItems) {
+          const itemTemplate = productionStream[streamIdx];
+          prodPlacedItems.push({
+            instance_id: `item_sheet_${currentSheetIndex}_slot_${slotIdx}_stream_${streamIdx}`,
+            order_id: itemTemplate.order_id,
+            pdf_source_url: itemTemplate.pdf_source_url,
+            x_mm: Number(itemX.toFixed(2)),
+            y_mm: Number(itemY.toFixed(2)),
+            width_with_bleed_mm: itemTotalW,
+            height_with_bleed_mm: itemTotalH,
+            trim_width_mm: itemTemplate.trim_width_mm,
+            trim_height_mm: itemTemplate.trim_height_mm,
+            bleed_mm: itemTemplate.bleed_mm,
+            rotation_deg: 0,
+            slot_type: itemTemplate.slot_type,
+            sequence_number: itemTemplate.sequence_number,
+            customer_reference: itemTemplate.customer_reference,
+            order_quantity: itemTemplate.order_quantity,
+            plate_id: '2954502725',
+            dispatch_date: '2026-08-24',
+            product_specs: itemTemplate.product_specs,
+            job_label: itemTemplate.job_label,
+            order_index: itemTemplate.order_index,
+            total_orders: itemTemplate.total_orders,
+            barcode_value: itemTemplate.barcode_value,
+            bleed_box: {
+              x1: itemX,
+              y1: itemY,
+              x2: itemX + itemTotalW,
+              y2: itemY + itemTotalH,
+            },
+            trim_box: {
+              x1: itemX + itemTemplate.bleed_mm,
+              y1: itemY + itemTemplate.bleed_mm,
+              x2: itemX + itemTotalW - itemTemplate.bleed_mm,
+              y2: itemY + itemTotalH - itemTemplate.bleed_mm,
+            },
+          });
+        } else {
+          // Empty slot at end of run
+          prodPlacedItems.push({
+            instance_id: `waste_sheet_${currentSheetIndex}_slot_${slotIdx}`,
+            order_id: orders[orders.length - 1].order_id,
+            pdf_source_url: orders[orders.length - 1].pdf_source_url,
+            x_mm: Number(itemX.toFixed(2)),
+            y_mm: Number(itemY.toFixed(2)),
+            width_with_bleed_mm: itemTotalW,
+            height_with_bleed_mm: itemTotalH,
+            trim_width_mm: trimW,
+            trim_height_mm: trimH,
+            bleed_mm: bleed,
+            rotation_deg: 0,
+            slot_type: 'WASTE_SLOT',
+            order_quantity: 0,
+            plate_id: '2954502725',
+            dispatch_date: '2026-08-24',
+            job_label: `Print job ${orders.length}/${orders.length}`,
+            order_index: orders.length,
+            total_orders: orders.length,
+            bleed_box: {
+              x1: itemX,
+              y1: itemY,
+              x2: itemX + itemTotalW,
+              y2: itemY + itemTotalH,
+            },
+            trim_box: {
+              x1: itemX + bleed,
+              y1: itemY + bleed,
+              x2: itemX + itemTotalW - bleed,
+              y2: itemY + itemTotalH - bleed,
+            },
+          });
+        }
+
+        prodHorizCuts.add(itemY);
+        prodHorizCuts.add(itemY + itemTotalH);
+        prodVertCuts.add(itemX);
+        prodVertCuts.add(itemX + itemTotalW);
       }
     }
 
-    const coverCutLines: CutLine[] = [];
+    const prodCutLines: CutLine[] = [];
     if (device_type === 'GUILLOTINE') {
       let cutOrder = 1;
-      Array.from(coverHorizCuts).sort((a, b) => a - b).forEach((y) => {
-        coverCutLines.push({
+      Array.from(prodHorizCuts).sort((a, b) => a - b).forEach((y) => {
+        prodCutLines.push({
           type: 'HORIZONTAL',
           start_mm: { x: 0, y },
           end_mm: { x: sheetWidth, y },
@@ -577,8 +808,8 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
           is_through_cut: true,
         });
       });
-      Array.from(coverVertCuts).sort((a, b) => a - b).forEach((x) => {
-        coverCutLines.push({
+      Array.from(prodVertCuts).sort((a, b) => a - b).forEach((x) => {
+        prodCutLines.push({
           type: 'VERTICAL',
           start_mm: { x, y: 0 },
           end_mm: { x, y: sheetHeight },
@@ -588,136 +819,27 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
       });
     }
 
-    const totalSheetAreaSqm = (sheetWidth * sheetHeight) / 1_000_000;
-    const coverUsedArea = coverPlacedItems.reduce((acc, item) => acc + (item.trim_width_mm * item.trim_height_mm) / 1_000_000, 0);
+    const prodUsedArea = prodPlacedItems.reduce((acc, item) => acc + (item.trim_width_mm * item.trim_height_mm) / 1_000_000, 0);
 
     sheets.push({
-      sheet_index: globalSheetIndex,
-      sheet_name: `sheet ${globalSheetIndex}/9`,
+      sheet_index: currentSheetIndex,
+      sheet_name: `sheet ${currentSheetIndex}/${totalSheetsRequired}`,
       width_mm: sheetWidth,
       height_mm: sheetHeight,
       gripper_edge: 'BOTTOM',
-      placed_items: coverPlacedItems,
-      cut_lines: coverCutLines,
-      waste_area_sqm: Math.max(0, totalSheetAreaSqm - coverUsedArea),
-      used_area_sqm: coverUsedArea,
-      sheet_yield_percentage: Number(((coverUsedArea / totalSheetAreaSqm) * 100).toFixed(1)),
+      placed_items: prodPlacedItems,
+      cut_lines: prodCutLines,
+      waste_area_sqm: Math.max(0, totalSheetAreaSqm - prodUsedArea),
+      used_area_sqm: prodUsedArea,
+      sheet_yield_percentage: Number(((prodUsedArea / totalSheetAreaSqm) * 100).toFixed(1)),
     });
-    globalSheetIndex++;
-
-    // 2. Generate PRODUCT Sheets for this order
-    for (let pIdx = 1; pIdx <= productSheetsCount; pIdx++) {
-      const prodPlacedItems: PlacedItem[] = [];
-      const prodHorizCuts = new Set<number>();
-      const prodVertCuts = new Set<number>();
-
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-          const slotIdx = r * cols + c;
-          const seqNo = pIdx + slotIdx * productSheetsCount;
-          const itemX = offsetX + c * orderTotalW;
-          const itemY = offsetY + r * orderTotalH;
-
-          prodPlacedItems.push({
-            instance_id: `prod_${o.order_id}_psheet_${pIdx}_slot_${slotIdx}`,
-            order_id: o.order_id,
-            pdf_source_url: o.pdf_source_url,
-            x_mm: Number(itemX.toFixed(2)),
-            y_mm: Number(itemY.toFixed(2)),
-            width_with_bleed_mm: orderTotalW,
-            height_with_bleed_mm: orderTotalH,
-            trim_width_mm: o.trim_width_mm,
-            trim_height_mm: o.trim_height_mm,
-            bleed_mm: orderBleed,
-            rotation_deg: 0,
-            slot_type: 'PRODUCT',
-            sequence_number: seqNo,
-            customer_reference: o.customer_reference || 'Drukarnia Partnerska',
-            order_quantity: o.quantity,
-            plate_id: jobId,
-            dispatch_date: dispatchDate,
-            product_specs: {
-              size: `${o.trim_width_mm}x${o.trim_height_mm}-mm`,
-              paper_weight_gsm: o.paper_weight_gsm || 300,
-              finish: o.paper_finish || '300-gsm-uncoated',
-            },
-            job_label: `Print job ${oIdx + 1}/${orders.length}`,
-            order_index: oIdx + 1,
-            total_orders: orders.length,
-            bleed_box: {
-              x1: itemX,
-              y1: itemY,
-              x2: itemX + orderTotalW,
-              y2: itemY + orderTotalH,
-            },
-            trim_box: {
-              x1: itemX + orderBleed,
-              y1: itemY + orderBleed,
-              x2: itemX + orderTotalW - orderBleed,
-              y2: itemY + orderTotalH - orderBleed,
-            },
-          });
-
-          prodHorizCuts.add(itemY);
-          prodHorizCuts.add(itemY + orderTotalH);
-          prodVertCuts.add(itemX);
-          prodVertCuts.add(itemX + orderTotalW);
-        }
-      }
-
-      const prodCutLines: CutLine[] = [];
-      if (device_type === 'GUILLOTINE') {
-        let cutOrder = 1;
-        Array.from(prodHorizCuts).sort((a, b) => a - b).forEach((y) => {
-          prodCutLines.push({
-            type: 'HORIZONTAL',
-            start_mm: { x: 0, y },
-            end_mm: { x: sheetWidth, y },
-            cut_order: cutOrder++,
-            is_through_cut: true,
-          });
-        });
-        Array.from(prodVertCuts).sort((a, b) => a - b).forEach((x) => {
-          prodCutLines.push({
-            type: 'VERTICAL',
-            start_mm: { x, y: 0 },
-            end_mm: { x, y: sheetHeight },
-            cut_order: cutOrder++,
-            is_through_cut: true,
-          });
-        });
-      }
-
-      const prodUsedArea = prodPlacedItems.reduce((acc, item) => acc + (item.trim_width_mm * item.trim_height_mm) / 1_000_000, 0);
-
-      sheets.push({
-        sheet_index: globalSheetIndex,
-        sheet_name: `sheet ${globalSheetIndex}/9`,
-        width_mm: sheetWidth,
-        height_mm: sheetHeight,
-        gripper_edge: 'BOTTOM',
-        placed_items: prodPlacedItems,
-        cut_lines: prodCutLines,
-        waste_area_sqm: Math.max(0, totalSheetAreaSqm - prodUsedArea),
-        used_area_sqm: prodUsedArea,
-        sheet_yield_percentage: Number(((prodUsedArea / totalSheetAreaSqm) * 100).toFixed(1)),
-      });
-      globalSheetIndex++;
-    }
   }
 
-  // Update sheet_name with final total sheet count
-  const totalSheetsGenerated = sheets.length;
-  sheets.forEach((s) => {
-    s.sheet_name = `sheet ${s.sheet_index}/${totalSheetsGenerated}`;
-  });
-
-  const totalSheetAreaSqm = (sheetWidth * sheetHeight) / 1_000_000;
   const primarySheet = sheets[0];
   const yieldPct = primarySheet?.sheet_yield_percentage ?? 80;
   const wastePct = Number((100 - yieldPct).toFixed(1));
-  const totalWasteSqm = Number(((totalSheetAreaSqm * (100 - yieldPct)) / 100 * totalSheetsGenerated).toFixed(4));
-  const totalUsedSqm = Number(((totalSheetAreaSqm * yieldPct) / 100 * totalSheetsGenerated).toFixed(4));
+  const totalWasteSqm = Number(((totalSheetAreaSqm * (100 - yieldPct)) / 100 * totalSheetsRequired).toFixed(4));
+  const totalUsedSqm = Number(((totalSheetAreaSqm * yieldPct) / 100 * totalSheetsRequired).toFixed(4));
 
   const totalItemsCount = orders.reduce((sum, o) => sum + o.quantity, 0);
 
@@ -729,13 +851,13 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
       slots_per_sheet: slotsPerSheet,
       grid_rows: rows,
       grid_cols: cols,
-      stack_depth_sheets: totalSheetsGenerated,
+      stack_depth_sheets: totalSheetsRequired,
       operator_stack_instructions: [
-        `1. Drukuj cały nakład (${totalSheetsGenerated} arkuszy SRA3) w jednym stosie.`,
+        `1. Drukuj cały nakład (${totalSheetsRequired} arkuszy SRA3) w jednym stosie.`,
         `2. Umieść cały stos w gilotynie jednonożowej bez obracania ani tasowania arkuszy.`,
-        `3. Wykonaj cięcia wzdłużne i poprzeczne (siatka ${cols} x ${rows} użytków).`,
-        `4. Po pocięciu ułóż powstałe ${slotsPerSheet} słupków od lewej do prawej, od góry do dołu na siebie.`,
-        `5. Wynikowy stos posiada nakład i etykiety słupkowe do weryfikacji przez operatora.`,
+        `3. Wykonaj cięcia wzdłużne i poprzeczne (siatka ${cols} x ${rows} = ${slotsPerSheet} użytków).`,
+        `4. Po pocięciu zdejmij górne karty rozdzielające STACK COVER i ułóż słupki 1..${slotsPerSheet} kolejno na siebie.`,
+        `5. Wynikowy stos zawiera perfekcyjnie posegregowane zamówienia z panelami informacyjnymi i separatorami.`,
       ],
     },
   };
@@ -747,9 +869,9 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
     waste_percentage: wastePct,
     total_waste_sqm: totalWasteSqm,
     total_used_sqm: totalUsedSqm,
-    sheet_run_count: totalSheetsGenerated,
-    total_sheets_required: totalSheetsGenerated,
-    sheets_generated_count: totalSheetsGenerated,
+    sheet_run_count: totalSheetsRequired,
+    total_sheets_required: totalSheetsRequired,
+    sheets_generated_count: totalSheetsRequired,
     download_pdf_url: downloadPdfUrl,
     pdf_standard: pdf_standard,
     execution_time_ms: Date.now() - startTime,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKey } from '@/lib/auth';
-import { adminDb } from '@/lib/firebase-admin';
+import { getJobFromStore } from '@/lib/job-store';
 import { ImpositionJob } from '@/types/imposition';
 
 interface RouteParams {
@@ -30,15 +30,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   }
 
   try {
-    const jobDoc = await adminDb.collection('imposition_jobs').doc(id).get();
-    if (!jobDoc.exists) {
+    const job = await getJobFromStore(id);
+    if (!job) {
       return NextResponse.json(
         { error: 'Not Found', message: `Job '${id}' not found`, code: 'JOB_NOT_FOUND' },
         { status: 404 }
       );
     }
 
-    const job = jobDoc.data() as ImpositionJob;
     const format = req.nextUrl.searchParams.get('format') || 'html';
 
     // Obliczenia parametrów technologicznych

@@ -75,6 +75,7 @@ export interface PlacedItem {
   stack_number?: number;
   total_stacks?: number;
   dispatch_date?: string;
+  barcode_value?: string;
 }
 
 export interface CutLine {
