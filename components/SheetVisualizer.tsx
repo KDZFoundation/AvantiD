@@ -216,7 +216,7 @@ export const SheetVisualizer: React.FC<SheetVisualizerProps> = ({
               textAnchor="end"
               pointerEvents="none"
             >
-              2954592808 sheet {currentSheetIndex}/{allSheetsCount}
+              {sheet.placed_items[0]?.plate_id || 'PLATE'} sheet {currentSheetIndex}/{allSheetsCount}
             </text>
 
             {/* 4 Corner Registration Crosshairs */}
@@ -303,7 +303,7 @@ export const SheetVisualizer: React.FC<SheetVisualizerProps> = ({
                           Klient: {item.customer_reference || 'Customer'}
                         </text>
                         <text x={item.trim_box.x1 + 4} y={item.trim_box.y1 + 29} fill="#475569" fontSize="3.6">
-                          Plate: {item.plate_id || '2954592808'} | {item.job_label || 'Print job 1/2'}
+                          Plate: {item.plate_id || 'PLATE'} | {item.job_label || 'Print job 1/2'}
                         </text>
                       </g>
 

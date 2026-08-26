@@ -527,6 +527,18 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
     offsetY,
   } = calculateBestOrientation(sheetWidth, sheetHeight, trimW, trimH, bleed, gap, margin);
 
+  const dynamicPlateId = (() => {
+    const rawNum = jobId.replace(/\D/g, '');
+    if (rawNum.length >= 10) return rawNum.slice(-10);
+    let hash = 5381;
+    for (let i = 0; i < jobId.length; i++) {
+      hash = ((hash << 5) + hash) + jobId.charCodeAt(i);
+      hash = hash & hash;
+    }
+    const hashStr = Math.abs(hash).toString();
+    return (rawNum + hashStr + '8901234567').slice(0, 10);
+  })();
+
   // 1. Build unified production stream across all orders in the job:
   interface StreamItemTemplate {
     order_id: string;
@@ -549,13 +561,13 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
 
   orders.forEach((o, oIdx) => {
     const oIndex = oIdx + 1;
-    const printJobBarcode = oIndex === 1 ? '7112132366' : '7112132407';
+    const printJobBarcode = o.order_id.replace(/\D/g, '').slice(-10) || o.order_id;
 
     // A. Order Info Panel (Start of Order)
     productionStream.push({
       order_id: o.order_id,
       slot_type: 'ORDER_INFO_PANEL',
-      customer_reference: o.customer_reference || (oIndex === 1 ? 'Angela Heidl' : 'Simone Rohr'),
+      customer_reference: o.customer_reference || `Order #${o.order_id}`,
       pdf_source_url: o.pdf_source_url,
       trim_width_mm: o.trim_width_mm,
       trim_height_mm: o.trim_height_mm,
@@ -654,10 +666,10 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
         slot_type: 'STACK_COVER',
         stack_number: stackNo,
         total_stacks: slotsPerSheet,
-        customer_reference: dominantOrder.customer_reference || (dominantItem.order_index === 1 ? 'Angela Heidl' : 'Simone Rohr'),
+        customer_reference: dominantOrder.customer_reference || `Order #${dominantOrder.order_id}`,
         order_quantity: dominantOrder.quantity,
-        plate_id: '2954592808',
-        dispatch_date: '2026-08-26',
+        plate_id: dynamicPlateId,
+        dispatch_date: new Date().toISOString().split('T')[0],
         product_specs: {
           size: `${trimW}x${trimH}-mm`,
           paper_weight_gsm: dominantOrder.paper_weight_gsm || 300,
@@ -666,7 +678,7 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
         job_label: dominantItem.job_label || 'Print job 1/2',
         order_index: dominantItem.order_index,
         total_orders: orders.length,
-        barcode_value: '2954502725',
+        barcode_value: dynamicPlateId,
         bleed_box: {
           x1: itemX,
           y1: itemY,
@@ -759,8 +771,8 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
             sequence_number: itemTemplate.sequence_number,
             customer_reference: itemTemplate.customer_reference,
             order_quantity: itemTemplate.order_quantity,
-            plate_id: '2954502725',
-            dispatch_date: '2026-08-24',
+            plate_id: dynamicPlateId,
+            dispatch_date: new Date().toISOString().split('T')[0],
             product_specs: itemTemplate.product_specs,
             job_label: itemTemplate.job_label,
             order_index: itemTemplate.order_index,
@@ -795,8 +807,8 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
             rotation_deg: bestRotation,
             slot_type: 'WASTE_SLOT',
             order_quantity: 0,
-            plate_id: '2954502725',
-            dispatch_date: '2026-08-24',
+            plate_id: dynamicPlateId,
+            dispatch_date: new Date().toISOString().split('T')[0],
             job_label: `Print job ${orders.length}/${orders.length}`,
             order_index: orders.length,
             total_orders: orders.length,

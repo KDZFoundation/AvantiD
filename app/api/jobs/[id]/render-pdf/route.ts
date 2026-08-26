@@ -369,7 +369,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     for (const sheetLayout of job.result.sheets) {
       const sheetWidthPt = sheetLayout.width_mm * MM_TO_PT;
       const sheetHeightPt = sheetLayout.height_mm * MM_TO_PT;
-      const plateIdText = job.result.sheets[0]?.placed_items[0]?.plate_id || '2954592808';
+      const plateIdText = job.result.sheets[0]?.placed_items[0]?.plate_id || (job.id ? job.id.replace(/\D/g, '').slice(-10) : '1000000001');
 
       // ==========================================
       // --- SIDE 1: FRONT (AWERS) ---
@@ -542,20 +542,12 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
               });
             }
 
-            pageFront.drawText(`Ortder ID: ${item.order_id}`, {
+            pageFront.drawText(`Order ID: ${item.order_id}`, {
               x: trimXPt + 8,
               y: trimYPt + trimHeightPt - 114,
               size: 6,
               font: fontHelvetica,
               color: rgb(0.3, 0.3, 0.3),
-            });
-
-            pageFront.drawText('gelato-create', {
-              x: trimXPt + 8,
-              y: trimYPt + trimHeightPt - 123,
-              size: 6,
-              font: fontHelveticaBold,
-              color: rgb(0.85, 0.2, 0.2),
             });
 
             // Blue HI Badge
@@ -703,7 +695,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           drawColorControlBar(pageFront, trimXPt, trimYPt + 5, 4, trimHeightPt - 10, true);
           drawColorControlBar(pageFront, trimXPt + trimWidthPt - 4, trimYPt + 5, 4, trimHeightPt - 10, true);
 
-          pageFront.drawText(String(item.order_index === 1 ? '5871285154' : '5871285240'), {
+          pageFront.drawText(String(item.barcode_value || item.order_id || plateIdText), {
             x: trimXPt + 8,
             y: trimYPt + trimHeightPt - 16,
             size: 8,
@@ -769,20 +761,12 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             });
           }
 
-          pageFront.drawText(`Ortder ID: ${item.order_index === 1 ? '5871281088' : '5871282608'}`, {
+          pageFront.drawText(`Order ID: ${item.order_id}`, {
             x: trimXPt + 8,
             y: trimYPt + trimHeightPt - 87,
             size: 6,
             font: fontHelvetica,
             color: rgb(0.3, 0.3, 0.3),
-          });
-
-          pageFront.drawText('gelato-create', {
-            x: trimXPt + 8,
-            y: trimYPt + trimHeightPt - 98,
-            size: 6,
-            font: fontHelveticaBold,
-            color: rgb(0.85, 0.2, 0.2),
           });
 
           // Badge (HI or J7)

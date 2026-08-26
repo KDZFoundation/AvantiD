@@ -3,9 +3,18 @@ import { adminDb } from './firebase-admin';
 import firebaseConfig from '../firebase-applet-config.json';
 import { PRESETS } from './presets';
 
-// In-memory fallback and caching store
-const memoryJobs = new Map<string, ImpositionJob>();
-let isFirestoreQuotaExceeded = false;
+// Global in-memory fallback and caching store (preserved across module reloads in Node process)
+const globalJobStore = globalThis as unknown as {
+  __POD_IMPOSITION_MEMORY_JOBS__?: Map<string, ImpositionJob>;
+  __POD_FIRESTORE_QUOTA_EXCEEDED__?: boolean;
+};
+
+if (!globalJobStore.__POD_IMPOSITION_MEMORY_JOBS__) {
+  globalJobStore.__POD_IMPOSITION_MEMORY_JOBS__ = new Map<string, ImpositionJob>();
+}
+
+const memoryJobs = globalJobStore.__POD_IMPOSITION_MEMORY_JOBS__;
+let isFirestoreQuotaExceeded = globalJobStore.__POD_FIRESTORE_QUOTA_EXCEEDED__ || false;
 let lastQuotaCheckTime = 0;
 let isStoreInitialized = false;
 
@@ -64,8 +73,15 @@ function isQuotaError(err: any): boolean {
   );
 }
 
+function markQuotaExceeded(exceeded: boolean) {
+  isFirestoreQuotaExceeded = exceeded;
+  if (globalJobStore) {
+    globalJobStore.__POD_FIRESTORE_QUOTA_EXCEEDED__ = exceeded;
+  }
+}
+
 export function isQuotaCurrentlyExceeded(): boolean {
-  return isFirestoreQuotaExceeded;
+  return isFirestoreQuotaExceeded || Boolean(globalJobStore.__POD_FIRESTORE_QUOTA_EXCEEDED__);
 }
 
 export function getQuotaDetails() {
@@ -89,10 +105,10 @@ export async function saveJobToStore(job: ImpositionJob): Promise<void> {
   try {
     const docRef = adminDb.collection('imposition_jobs').doc(job.id);
     await docRef.set(job);
-    isFirestoreQuotaExceeded = false;
+    markQuotaExceeded(false);
   } catch (err: any) {
     if (isQuotaError(err)) {
-      isFirestoreQuotaExceeded = true;
+      markQuotaExceeded(true);
       console.warn(`[JobStore] Firestore Quota Exceeded on set (${job.id}). Persisted in memory store.`);
     } else {
       console.error(`[JobStore] Firestore set error for ${job.id}:`, err);
@@ -114,10 +130,10 @@ export async function updateJobInStore(jobId: string, updates: Partial<Impositio
   try {
     const docRef = adminDb.collection('imposition_jobs').doc(jobId);
     await docRef.set(updates, { merge: true });
-    isFirestoreQuotaExceeded = false;
+    markQuotaExceeded(false);
   } catch (err: any) {
     if (isQuotaError(err)) {
-      isFirestoreQuotaExceeded = true;
+      markQuotaExceeded(true);
       console.warn(`[JobStore] Firestore Quota Exceeded on update (${jobId}). Updated in memory store.`);
     } else {
       console.error(`[JobStore] Firestore update error for ${jobId}:`, err);
@@ -129,11 +145,13 @@ export async function updateJobInStore(jobId: string, updates: Partial<Impositio
  * Retrieves a single job by ID (from memory or Firestore).
  */
 export async function getJobFromStore(jobId: string): Promise<ImpositionJob | null> {
-  // If memory already has full completed result, prefer memory fast path
   const memJob = memoryJobs.get(jobId);
+  if (memJob && memJob.status === 'COMPLETED') {
+    return memJob;
+  }
 
-  // If quota was already marked as exceeded, use memory directly to prevent wasteful failing requests
-  if (isFirestoreQuotaExceeded && memJob) {
+  // If quota was already marked as exceeded, return whatever is in memory
+  if ((isFirestoreQuotaExceeded || Boolean(globalJobStore.__POD_FIRESTORE_QUOTA_EXCEEDED__)) && memJob) {
     return memJob;
   }
 
@@ -142,20 +160,23 @@ export async function getJobFromStore(jobId: string): Promise<ImpositionJob | nu
     const doc = await docRef.get();
     if (doc.exists) {
       const data = doc.data() as ImpositionJob;
-      memoryJobs.set(jobId, data);
-      isFirestoreQuotaExceeded = false;
-      return data;
+      // If memory already has a newer/completed status, keep memory
+      if (!memJob || memJob.status !== 'COMPLETED') {
+        memoryJobs.set(jobId, data);
+        return data;
+      }
+      return memJob;
     }
   } catch (err: any) {
     if (isQuotaError(err)) {
-      isFirestoreQuotaExceeded = true;
+      markQuotaExceeded(true);
       console.warn(`[JobStore] Firestore Quota Exceeded on get (${jobId}). Returning from memory store.`);
     } else {
       console.error(`[JobStore] Firestore get error for ${jobId}:`, err);
     }
   }
 
-  return memJob || null;
+  return memoryJobs.get(jobId) || null;
 }
 
 /**
