@@ -101,6 +101,75 @@ export async function executeImpositionJob(jobId: string, payload: ImpositionJob
 }
 
 /**
+ * Auto-optimizes item rotation (0° vs 90°) to maximize the number of items that fit on the sheet.
+ */
+export function calculateBestOrientation(
+  sheetWidth: number,
+  sheetHeight: number,
+  trimW: number,
+  trimH: number,
+  bleed: number,
+  gap: number = 6.0,
+  margin: number = 5.0
+): {
+  bestRotation: 0 | 90;
+  cols: number;
+  rows: number;
+  slotsPerSheet: number;
+  itemTotalW: number;
+  itemTotalH: number;
+  gridTotalW: number;
+  gridTotalH: number;
+  offsetX: number;
+  offsetY: number;
+} {
+  const printableW = sheetWidth - 2 * margin;
+  const printableH = sheetHeight - 2 * margin;
+
+  // Test 0°:
+  const orient0_W = trimW + 2 * bleed;
+  const orient0_H = trimH + 2 * bleed;
+  const cols0 = Math.max(1, Math.floor((printableW + gap) / (orient0_W + gap)));
+  const rows0 = Math.max(1, Math.floor((printableH + gap) / (orient0_H + gap)));
+  const count0 = cols0 * rows0;
+
+  // Test 90°:
+  const orient90_W = trimH + 2 * bleed;
+  const orient90_H = trimW + 2 * bleed;
+  const cols90 = Math.max(1, Math.floor((printableW + gap) / (orient90_W + gap)));
+  const rows90 = Math.max(1, Math.floor((printableH + gap) / (orient90_H + gap)));
+  const count90 = cols90 * rows90;
+
+  const use90 = count90 > count0;
+
+  const bestRotation: 0 | 90 = use90 ? 90 : 0;
+  const cols = use90 ? cols90 : cols0;
+  const rows = use90 ? rows90 : rows0;
+  const slotsPerSheet = use90 ? count90 : count0;
+  const itemTotalW = use90 ? orient90_W : orient0_W;
+  const itemTotalH = use90 ? orient90_H : orient0_H;
+
+  const gridTotalW = cols * itemTotalW + (cols - 1) * gap;
+  const gridTotalH = rows * itemTotalH + (rows - 1) * gap;
+
+  const offsetX = Number(((sheetWidth - gridTotalW) / 2).toFixed(2));
+  const offsetY = Number(((sheetHeight - gridTotalH) / 2).toFixed(2));
+
+  return {
+    bestRotation,
+    cols,
+    rows,
+    slotsPerSheet,
+    itemTotalW,
+    itemTotalH,
+    gridTotalW,
+    gridTotalH,
+    offsetX,
+    offsetY,
+  };
+}
+
+/**
  * High-fidelity print engineering layout engine.
  * Distinct execution branches for:
  * 1. GANGING (combo-run, 2D guillotine bin packing, ratio balancing)
@@ -124,23 +193,18 @@ export function runInternalLayoutEngine(jobId: string, payload: ImpositionJobPay
  */
 export function runGangingWorkflow(jobId: string, payload: ImpositionJobPayload, startTime: number): JobResult {
   const { sheet, orders, device_type, pdf_standard } = payload;
-  const sheetWidth = sheet.width_mm;
-  const sheetHeight = sheet.height_mm;
-  const margin = sheet.margins_mm;
-  const gripperMargin = sheet.gripper_margin_mm;
+  const mismatchWarning = checkFilenameDimensionMismatch(orders);
 
-  const printableMinX = margin;
-  const printableMaxX = sheetWidth - margin;
-  const printableMinY = gripperMargin;
-  const printableMaxY = sheetHeight - margin;
-  const printableWidth = printableMaxX - printableMinX;
-  const printableHeight = printableMaxY - printableMinY;
+  const sheetWidth = sheet?.width_mm ?? 480.0;
+  const sheetHeight = sheet?.height_mm ?? 330.0;
+  const margin = sheet?.margins_mm ?? 5.0;
+  const gap = 6.0;
 
   let isSampledEstimate = false;
 
   // Track combo-run multipliers for each order
   const comboMultipliers: Record<string, { ordered: number; per_sheet: number; total_printed: number; overprint_count: number }> = {};
-  
+
   // All slot descriptor items to be placed on sheets
   interface SlotBlueprint {
     order: typeof orders[0];
@@ -148,6 +212,14 @@ export function runGangingWorkflow(jobId: string, payload: ImpositionJobPayload,
     orderIndex: number;
     totalOrders: number;
     subIndex?: number;
+    bestRotation: 0 | 90;
+    cols: number;
+    rows: number;
+    slotsPerSheet: number;
+    itemTotalW: number;
+    itemTotalH: number;
+    offsetX: number;
+    offsetY: number;
   }
 
   const allSlotsQueue: SlotBlueprint[] = [];
@@ -157,16 +229,22 @@ export function runGangingWorkflow(jobId: string, payload: ImpositionJobPayload,
   for (let oIdx = 0; oIdx < orders.length; oIdx++) {
     const o = orders[oIdx];
     const bleed = o.bleed_mm;
-    const itemTotalW = o.trim_width_mm + 2 * bleed;
-    const itemTotalH = o.trim_height_mm + 2 * bleed;
-    const cols = Math.max(1, Math.floor(printableWidth / itemTotalW));
-    const rows = Math.max(1, Math.floor(printableHeight / itemTotalH));
-    const positionsPerSheet = cols * rows;
+
+    const orient = calculateBestOrientation(
+      sheetWidth,
+      sheetHeight,
+      o.trim_width_mm,
+      o.trim_height_mm,
+      bleed,
+      gap,
+      margin
+    );
+
+    const positionsPerSheet = orient.slotsPerSheet;
 
     let productSlotsCount: number;
     let wasteSlotsCount: number;
 
-    // Check if sampled estimate is needed (large quantity relative to sheet capacity)
     if (o.quantity > positionsPerSheet * 2) {
       isSampledEstimate = true;
       const rawRatio = o.quantity / minQty;
@@ -179,56 +257,43 @@ export function runGangingWorkflow(jobId: string, payload: ImpositionJobPayload,
       wasteSlotsCount = remainder > 0 && positionsPerSheet - remainder <= 2 ? 1 : 0;
     }
 
-    // Sequence: 1. ORDER_INFO_PANEL (1)
-    allSlotsQueue.push({
+    const baseBlueprint = {
       order: o,
-      slotType: 'ORDER_INFO_PANEL',
       orderIndex: oIdx + 1,
       totalOrders: orders.length,
-    });
+      bestRotation: orient.bestRotation,
+      cols: orient.cols,
+      rows: orient.rows,
+      slotsPerSheet: orient.slotsPerSheet,
+      itemTotalW: orient.itemTotalW,
+      itemTotalH: orient.itemTotalH,
+      offsetX: orient.offsetX,
+      offsetY: orient.offsetY,
+    };
 
-    // Sequence: 2. PRODUCT (productSlotsCount)
+    // 1. ORDER_INFO_PANEL (1)
+    allSlotsQueue.push({ ...baseBlueprint, slotType: 'ORDER_INFO_PANEL' });
+
+    // 2. PRODUCT (productSlotsCount)
     for (let p = 0; p < productSlotsCount; p++) {
-      allSlotsQueue.push({
-        order: o,
-        slotType: 'PRODUCT',
-        orderIndex: oIdx + 1,
-        totalOrders: orders.length,
-        subIndex: p + 1,
-      });
+      allSlotsQueue.push({ ...baseBlueprint, slotType: 'PRODUCT', subIndex: p + 1 });
     }
 
-    // Sequence: 3. WASTE_SLOT (wasteSlotsCount)
+    // 3. WASTE_SLOT (wasteSlotsCount)
     for (let w = 0; w < wasteSlotsCount; w++) {
-      allSlotsQueue.push({
-        order: o,
-        slotType: 'WASTE_SLOT',
-        orderIndex: oIdx + 1,
-        totalOrders: orders.length,
-        subIndex: w + 1,
-      });
+      allSlotsQueue.push({ ...baseBlueprint, slotType: 'WASTE_SLOT', subIndex: w + 1 });
     }
 
-    // Sequence: 4. NEXT_ORDER_START_MARKER (1, omitted for the last order)
+    // 4. NEXT_ORDER_START_MARKER (1, omitted for last order)
     if (oIdx < orders.length - 1) {
-      allSlotsQueue.push({
-        order: o,
-        slotType: 'NEXT_ORDER_START_MARKER',
-        orderIndex: oIdx + 1,
-        totalOrders: orders.length,
-      });
+      allSlotsQueue.push({ ...baseBlueprint, slotType: 'NEXT_ORDER_START_MARKER' });
     }
 
-    // Sequence: 5. ORDER_END_MARKER (1)
-    allSlotsQueue.push({
-      order: o,
-      slotType: 'ORDER_END_MARKER',
-      orderIndex: oIdx + 1,
-      totalOrders: orders.length,
-    });
+    // 5. ORDER_END_MARKER (1)
+    allSlotsQueue.push({ ...baseBlueprint, slotType: 'ORDER_END_MARKER' });
   }
 
-  // Pack slots onto sheets with multi-sheet overflow support
+  // Pack slots onto sheets
   const sheets: SheetLayout[] = [];
   let sheetIndex = 1;
   let slotIdx = 0;
@@ -239,39 +304,20 @@ export function runGangingWorkflow(jobId: string, payload: ImpositionJobPayload,
     const horizontalCuts = new Set<number>();
     const verticalCuts = new Set<number>();
 
-    let currentX = printableMinX;
-    let currentY = printableMinY;
-    let currentRowMaxHeight = 0;
-    const gap = device_type === 'CNC_PLOTTER' ? 3.0 : 0.0;
+    const refBlueprint = allSlotsQueue[slotIdx];
+    const { cols, rows, itemTotalW, itemTotalH, offsetX, offsetY, bestRotation } = refBlueprint;
+    const itemsOnThisSheet = Math.min(cols * rows, allSlotsQueue.length - slotIdx);
 
-    while (slotIdx < allSlotsQueue.length) {
-      const blueprint = allSlotsQueue[slotIdx];
+    for (let slotPos = 0; slotPos < itemsOnThisSheet; slotPos++) {
+      const blueprint = allSlotsQueue[slotIdx + slotPos];
       const o = blueprint.order;
       const bleed = o.bleed_mm;
-      const itemTotalW = o.trim_width_mm + 2 * bleed;
-      const itemTotalH = o.trim_height_mm + 2 * bleed;
 
-      // Check if slot fits on current row
-      if (currentX + itemTotalW > printableMaxX) {
-        // Move to next row
-        currentX = printableMinX;
-        currentY += currentRowMaxHeight + gap;
-        currentRowMaxHeight = 0;
-      }
+      const r = Math.floor(slotPos / cols);
+      const c = slotPos % cols;
 
-      // Check if slot fits vertically on current sheet
-      if (currentY + itemTotalH > printableMaxY) {
-        // Sheet is full, move to next sheet
-        if (placedItems.length === 0) {
-          // Edge case: single item doesn't fit on sheet at all
-          currentY = printableMinY;
-        } else {
-          break;
-        }
-      }
-
-      const itemX = currentX;
-      const itemY = currentY;
+      const itemX = offsetX + c * (itemTotalW + gap);
+      const itemY = offsetY + r * (itemTotalH + gap);
 
       placedItems.push({
         instance_id: `ganging_${o.order_id}_${blueprint.slotType.toLowerCase()}_${instanceCounter++}`,
@@ -284,7 +330,7 @@ export function runGangingWorkflow(jobId: string, payload: ImpositionJobPayload,
         trim_width_mm: o.trim_width_mm,
         trim_height_mm: o.trim_height_mm,
         bleed_mm: bleed,
-        rotation_deg: 0,
+        rotation_deg: bestRotation,
         cut_contour: device_type === 'CNC_PLOTTER',
         slot_type: blueprint.slotType,
         customer_reference: o.customer_reference || 'Drukarnia Partnerska',
@@ -316,14 +362,9 @@ export function runGangingWorkflow(jobId: string, payload: ImpositionJobPayload,
       horizontalCuts.add(itemY + itemTotalH);
       verticalCuts.add(itemX);
       verticalCuts.add(itemX + itemTotalW);
-
-      currentX += itemTotalW + gap;
-      if (itemTotalH > currentRowMaxHeight) {
-        currentRowMaxHeight = itemTotalH;
-      }
-
-      slotIdx++;
     }
+
+    slotIdx += itemsOnThisSheet;
 
     // Cut lines for current sheet
     const cutLines: CutLine[] = [];
@@ -353,11 +394,11 @@ export function runGangingWorkflow(jobId: string, payload: ImpositionJobPayload,
     const opticalMarks: OpticalMark[] = [];
     if (device_type === 'CNC_PLOTTER') {
       opticalMarks.push(
-        { x_mm: margin / 2, y_mm: gripperMargin / 2, type: 'CROSSHAIR', radius_mm: 3 },
-        { x_mm: sheetWidth - margin / 2, y_mm: gripperMargin / 2, type: 'CROSSHAIR', radius_mm: 3 },
+        { x_mm: margin / 2, y_mm: margin / 2, type: 'CROSSHAIR', radius_mm: 3 },
+        { x_mm: sheetWidth - margin / 2, y_mm: margin / 2, type: 'CROSSHAIR', radius_mm: 3 },
         { x_mm: sheetWidth - margin / 2, y_mm: sheetHeight - margin / 2, type: 'CROSSHAIR', radius_mm: 3 },
         { x_mm: margin / 2, y_mm: sheetHeight - margin / 2, type: 'CROSSHAIR', radius_mm: 3 },
-        { x_mm: sheetWidth / 2, y_mm: gripperMargin / 2, type: 'CIRCLE_DOT', radius_mm: 2 },
+        { x_mm: sheetWidth / 2, y_mm: margin / 2, type: 'CIRCLE_DOT', radius_mm: 2 },
         { x_mm: sheetWidth / 2, y_mm: sheetHeight - margin / 2, type: 'CIRCLE_DOT', radius_mm: 2 }
       );
     }
@@ -431,7 +472,7 @@ export function runGangingWorkflow(jobId: string, payload: ImpositionJobPayload,
       optical_registration_marks_count: totalCncMarks,
       cut_contour_layers: ['CutContour', 'CreaseMatrix'],
       nesting_mode: 'BOUNDING_BOX_WITH_GAP',
-      safety_margin_between_cuts_mm: 3.0,
+      safety_margin_between_cuts_mm: 6.0,
     } : undefined,
   };
 
@@ -452,66 +493,41 @@ export function runGangingWorkflow(jobId: string, payload: ImpositionJobPayload,
     workflow_details: workflowDetails,
     service_origin: 'INTERNAL_CALC_ENGINE',
     is_sampled_estimate: isSampledEstimate,
+    filename_dimension_mismatch_warning: mismatchWarning,
   };
 }
 
 /**
  * CUT & STACK WORKFLOW:
  * Multi-up layout sequencing for books, sequential serial tickets, vouchers, or large multi-page jobs.
- * 
- * Mathematical Principle:
- * If a sheet has N slots (e.g. 3 cols x 4 rows = 12 up) and the total items is M:
- * Stack depth S = ceil(M / N).
- * Sheet k (1..S) at slot index j (0..N-1) contains item: k + j * S.
- * When the pile of S sheets is sliced into N stacks and placed on top of each other,
- * items 1..M are in exact continuous numerical order!
  */
 export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayload, startTime: number): JobResult {
   const { sheet, orders, device_type, pdf_standard } = payload;
 
   const mismatchWarning = checkFilenameDimensionMismatch(orders);
 
-  // Use SRA3 press sheet dimensions (480 x 330 mm) for multi-up imposition
-  const isSmallSheet = sheet.width_mm < 400 || sheet.height_mm < 300;
-  const sheetWidth = isSmallSheet ? 480.0 : sheet.width_mm;
-  const sheetHeight = isSmallSheet ? 330.0 : sheet.height_mm;
+  const sheetWidth = sheet?.width_mm ?? 480.0;
+  const sheetHeight = sheet?.height_mm ?? 330.0;
+  const margin = sheet?.margins_mm ?? 5.0;
+  const gap = 6.0;
 
   const sampleOrder = orders[0];
   const trimW = sampleOrder?.trim_width_mm ?? 105.0;
   const trimH = sampleOrder?.trim_height_mm ?? 148.0;
   const bleed = sampleOrder?.bleed_mm ?? 3.0;
 
-  // AUTO-OPTIMIZATION OF ORIENTATION (0° vs 90°)
-  // Test 0°:
-  const orient0_W = trimW + 2 * bleed;
-  const orient0_H = trimH + 2 * bleed;
-  const cols0 = Math.max(1, Math.floor(sheetWidth / orient0_W));
-  const rows0 = Math.max(1, Math.floor(sheetHeight / orient0_H));
-  const count0 = cols0 * rows0;
-
-  // Test 90°:
-  const orient90_W = trimH + 2 * bleed;
-  const orient90_H = trimW + 2 * bleed;
-  const cols90 = Math.max(1, Math.floor(sheetWidth / orient90_W));
-  const rows90 = Math.max(1, Math.floor(sheetHeight / orient90_H));
-  const count90 = cols90 * rows90;
-
-  const use90 = count90 > count0;
-  const bestRotation: 0 | 90 = use90 ? 90 : 0;
-  const itemTotalW = use90 ? orient90_W : orient0_W;
-  const itemTotalH = use90 ? orient90_H : orient0_H;
-  const cols = use90 ? cols90 : cols0;
-  const rows = use90 ? rows90 : rows0;
-  const slotsPerSheet = cols * rows;
-
-  // SYMMETRIC CENTERING
-  const gridTotalW = cols * itemTotalW;
-  const gridTotalH = rows * itemTotalH;
-  const offsetX = Number(((sheetWidth - gridTotalW) / 2).toFixed(2));
-  const offsetY = Number(((sheetHeight - gridTotalH) / 2).toFixed(2));
+  const {
+    bestRotation,
+    cols,
+    rows,
+    slotsPerSheet,
+    itemTotalW,
+    itemTotalH,
+    offsetX,
+    offsetY,
+  } = calculateBestOrientation(sheetWidth, sheetHeight, trimW, trimH, bleed, gap, margin);
 
   // 1. Build unified production stream across all orders in the job:
-  // For each order: 1 Order Info Panel + Qty Products + 1 End Separator Marker
   interface StreamItemTemplate {
     order_id: string;
     slot_type: PlacedItemSlotType;
@@ -579,7 +595,7 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
       });
     }
 
-    // C. End of Order Separator (Yellow card on Front, Barcode & Job Label on Back)
+    // C. End of Order Separator
     productionStream.push({
       order_id: o.order_id,
       slot_type: 'WASTE_SLOT',
@@ -601,16 +617,13 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
     });
   });
 
-  // Calculate required product sheets depth (e.g. 64 items / 8 stacks = 8 product sheets)
   const totalStreamItems = productionStream.length;
   const productSheetsDepth = Math.max(1, Math.ceil(totalStreamItems / slotsPerSheet));
-  const totalSheetsRequired = 1 + productSheetsDepth; // 1 stack cover sheet + product sheets = 9 sheets total
+  const totalSheetsRequired = 1 + productSheetsDepth;
 
   const sheets: SheetLayout[] = [];
 
-  // =========================================================
   // 1. GENERATE SHEET 1 (STACK COVER SHEET FOR ALL STACKS)
-  // =========================================================
   const coverPlacedItems: PlacedItem[] = [];
   const coverHorizCuts = new Set<number>();
   const coverVertCuts = new Set<number>();
@@ -619,10 +632,9 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
     for (let c = 0; c < cols; c++) {
       const slotIdx = r * cols + c;
       const stackNo = slotIdx + 1;
-      const itemX = offsetX + c * itemTotalW;
-      const itemY = offsetY + r * itemTotalH;
+      const itemX = offsetX + c * (itemTotalW + gap);
+      const itemY = offsetY + r * (itemTotalH + gap);
 
-      // Determine which order is dominant on this stack column
       const streamIdxForStack = slotIdx * productSheetsDepth;
       const dominantItem = productionStream[Math.min(streamIdxForStack, totalStreamItems - 1)] || productionStream[0];
       const dominantOrder = orders.find((ord) => ord.order_id === dominantItem.order_id) || orders[0];
@@ -714,9 +726,7 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
     sheet_yield_percentage: Number(((coverUsedArea / totalSheetAreaSqm) * 100).toFixed(1)),
   });
 
-  // =========================================================
-  // 2. GENERATE SHEETS 2..N (CUT & STACK PRODUCT & SEPARATOR SHEETS)
-  // =========================================================
+  // 2. GENERATE SHEETS 2..N
   for (let pIdx = 0; pIdx < productSheetsDepth; pIdx++) {
     const currentSheetIndex = pIdx + 2;
     const prodPlacedItems: PlacedItem[] = [];
@@ -726,10 +736,9 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const slotIdx = r * cols + c;
-        const itemX = offsetX + c * itemTotalW;
-        const itemY = offsetY + r * itemTotalH;
+        const itemX = offsetX + c * (itemTotalW + gap);
+        const itemY = offsetY + r * (itemTotalH + gap);
 
-        // Cut & Stack Sequence Formula: streamIdx = slotIdx * productSheetsDepth + pIdx
         const streamIdx = slotIdx * productSheetsDepth + pIdx;
 
         if (streamIdx < totalStreamItems) {

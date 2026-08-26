@@ -257,6 +257,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       const sheetWidthPt = sheetLayout.width_mm * MM_TO_PT;
       const sheetHeightPt = sheetLayout.height_mm * MM_TO_PT;
       const marginPt = (job.sheet?.margins_mm || 5) * MM_TO_PT;
+      const gripperHeightPt = (job.sheet?.gripper_margin_mm || 15) * MM_TO_PT;
 
       // ==========================================
       // --- SIDE 1: FRONT (AWERS) ---
@@ -272,16 +273,37 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         color: rgb(0.99, 0.99, 0.99),
       });
 
-      // Render barcode tags for each distinct order in top-left corner
+      // Draw Gripper Margin
+      pageFront.drawRectangle({
+        x: 0,
+        y: 0,
+        width: sheetWidthPt,
+        height: gripperHeightPt,
+        color: rgb(0.93, 0.94, 0.96),
+        borderColor: rgb(0.8, 0.83, 0.88),
+        borderWidth: 0.5,
+      });
+
+      pageFront.drawText(
+        `GRIPPER EDGE / LAPKA MASZYNY (${job.sheet?.gripper_margin_mm || 15} mm) - FRONT [AWERS]`,
+        {
+          x: 15,
+          y: Math.max(4, gripperHeightPt / 2 - 4),
+          size: 8,
+          font: fontHelveticaBold,
+          color: rgb(0.45, 0.5, 0.58),
+        }
+      );
+
+      // Render barcode tags for each distinct order in gripper
       const distinctOrders = Array.from(new Set(sheetLayout.placed_items.map((i) => i.order_id)));
-      let tagX = 15;
-      const tagY = sheetHeightPt - 40;
+      let tagX = 220;
       distinctOrders.forEach((ordId) => {
-        if (tagX + 110 < sheetWidthPt - 160) {
-          drawBarcode1D(pageFront, ordId, tagX, tagY, 14, 45);
+        if (tagX + 110 < sheetWidthPt - 20) {
+          drawBarcode1D(pageFront, ordId, tagX, 4, 12, 45);
           pageFront.drawText(ordId, {
             x: tagX + 50,
-            y: tagY + 3,
+            y: 8,
             size: 6,
             font: fontHelveticaBold,
             color: rgb(0.2, 0.25, 0.35),
@@ -290,13 +312,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         }
       });
 
-      // Draw Sheet Margin Box (Centered)
+      // Draw Sheet Margin Box
       pageFront.drawRectangle({
         x: marginPt,
-        y: marginPt,
+        y: gripperHeightPt,
         width: sheetWidthPt - marginPt * 2,
-        height: sheetHeightPt - marginPt * 2,
-        borderColor: rgb(0.88, 0.9, 0.94),
+        height: sheetHeightPt - gripperHeightPt - marginPt,
+        borderColor: rgb(0.85, 0.88, 0.92),
         borderWidth: 0.5,
       });
 
@@ -317,7 +339,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           const embedded = embeddedSourcesCache.get(item.pdf_source_url);
 
           if (embedded && embedded.front) {
-            // Draw embedded vector source page (Page 1 / Front) with rotation support
+            // Draw embedded vector source page (Page 1 / Front)
             if (item.rotation_deg === 90) {
               pageFront.drawPage(embedded.front, {
                 x: itemXPt + itemWWithBleedPt,
@@ -332,7 +354,6 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
                 y: itemYPt,
                 width: itemWWithBleedPt,
                 height: itemHWithBleedPt,
-                rotate: degrees(0),
               });
             }
           } else {
@@ -770,13 +791,35 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         color: rgb(0.99, 0.99, 0.99),
       });
 
-      // Sheet Margin Box on Back (Centered)
+      // Gripper Margin on Back
+      pageBack.drawRectangle({
+        x: 0,
+        y: 0,
+        width: sheetWidthPt,
+        height: gripperHeightPt,
+        color: rgb(0.93, 0.94, 0.96),
+        borderColor: rgb(0.8, 0.83, 0.88),
+        borderWidth: 0.5,
+      });
+
+      pageBack.drawText(
+        `GRIPPER EDGE / LAPKA MASZYNY (${job.sheet?.gripper_margin_mm || 15} mm) - BACK [REWERS]`,
+        {
+          x: 15,
+          y: Math.max(4, gripperHeightPt / 2 - 4),
+          size: 8,
+          font: fontHelveticaBold,
+          color: rgb(0.45, 0.5, 0.58),
+        }
+      );
+
+      // Sheet Margin Box on Back
       pageBack.drawRectangle({
         x: marginPt,
-        y: marginPt,
+        y: gripperHeightPt,
         width: sheetWidthPt - marginPt * 2,
-        height: sheetHeightPt - marginPt * 2,
-        borderColor: rgb(0.88, 0.9, 0.94),
+        height: sheetHeightPt - gripperHeightPt - marginPt,
+        borderColor: rgb(0.85, 0.88, 0.92),
         borderWidth: 0.5,
       });
 
@@ -801,7 +844,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           const embedded = embeddedSourcesCache.get(item.pdf_source_url);
 
           if (embedded && embedded.back) {
-            // Draw embedded vector source page (Page 2 / Back) with rotation support
+            // Draw embedded vector source page (Page 2 / Back)
             if (item.rotation_deg === 90) {
               pageBack.drawPage(embedded.back, {
                 x: backItemXPt + itemWWithBleedPt,
@@ -816,7 +859,6 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
                 y: itemYPt,
                 width: itemWWithBleedPt,
                 height: itemHWithBleedPt,
-                rotate: degrees(0),
               });
             }
           } else {

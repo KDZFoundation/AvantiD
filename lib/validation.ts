@@ -1,35 +1,65 @@
 import { z } from 'zod';
 
-export const OrderItemSchema = z.object({
-  order_id: z.string().min(1, 'order_id cannot be empty'),
-  pdf_source_url: z
-    .string()
-    .min(1, 'pdf_source_url cannot be empty')
-    .refine(
-      (val) => val.startsWith('http://') || val.startsWith('https://') || val.startsWith('/') || val.startsWith('data:'),
-      { message: 'pdf_source_url must be a valid URL (https://, http://, or local path /...)' }
-    ),
-  trim_width_mm: z
-    .number()
-    .positive('trim_width_mm must be a positive number')
-    .max(5000, 'trim_width_mm cannot exceed 5000 mm'),
-  trim_height_mm: z
-    .number()
-    .positive('trim_height_mm must be a positive number')
-    .max(5000, 'trim_height_mm cannot exceed 5000 mm'),
-  bleed_mm: z
-    .number()
-    .min(0, 'bleed_mm cannot be negative')
-    .max(50, 'bleed_mm cannot exceed 50 mm')
-    .default(3.0),
-  quantity: z
-    .number()
-    .int('quantity must be an integer')
-    .positive('quantity must be at least 1')
-    .max(10000000, 'quantity cannot exceed 10,000,000'),
-  custom_label: z.string().optional(),
-  priority: z.number().int().optional(),
-});
+export const OrderItemSchema = z
+  .object({
+    order_id: z.string().min(1, 'order_id cannot be empty'),
+    pdf_source_url: z
+      .string()
+      .min(1, 'pdf_source_url cannot be empty')
+      .refine(
+        (val) => val.startsWith('http://') || val.startsWith('https://') || val.startsWith('/') || val.startsWith('data:'),
+        { message: 'pdf_source_url must be a valid URL (https://, http://, or local path /...)' }
+      ),
+    trim_width_mm: z
+      .number()
+      .positive('trim_width_mm must be a positive number')
+      .max(5000, 'trim_width_mm cannot exceed 5000 mm')
+      .optional(),
+    trim_height_mm: z
+      .number()
+      .positive('trim_height_mm must be a positive number')
+      .max(5000, 'trim_height_mm cannot exceed 5000 mm')
+      .optional(),
+    bleed_mm: z
+      .number()
+      .min(0, 'bleed_mm cannot be negative')
+      .max(50, 'bleed_mm cannot exceed 50 mm')
+      .default(3.0),
+    quantity: z
+      .number()
+      .int('quantity must be an integer')
+      .positive('quantity must be at least 1')
+      .max(10000000, 'quantity cannot exceed 10,000,000'),
+    custom_label: z.string().optional(),
+    priority: z.number().int().optional(),
+  })
+  .transform((data, ctx) => {
+    let width = data.trim_width_mm;
+    let height = data.trim_height_mm;
+
+    if (width === undefined || height === undefined) {
+      const extracted = parseDimensionsFromFilename(data.pdf_source_url);
+      if (extracted) {
+        if (width === undefined) width = extracted.width_mm;
+        if (height === undefined) height = extracted.height_mm;
+      }
+    }
+
+    if (width === undefined || height === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Nie podano wymiarów trim_width_mm / trim_height_mm dla zamówienia '${data.order_id}' i nie udało się ich odczytać z nazwy pliku '${data.pdf_source_url}'.`,
+        path: width === undefined ? ['trim_width_mm'] : ['trim_height_mm'],
+      });
+      return z.NEVER;
+    }
+
+    return {
+      ...data,
+      trim_width_mm: width,
+      trim_height_mm: height,
+    };
+  });
 
 export const SheetConfigSchema = z.object({
   name: z.string().optional(),
