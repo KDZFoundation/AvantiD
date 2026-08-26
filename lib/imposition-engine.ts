@@ -555,7 +555,7 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
     productionStream.push({
       order_id: o.order_id,
       slot_type: 'ORDER_INFO_PANEL',
-      customer_reference: o.customer_reference || (oIndex === 1 ? 'Achim Strob' : 'Annett Eppert'),
+      customer_reference: o.customer_reference || (oIndex === 1 ? 'Angela Heidl' : 'Simone Rohr'),
       pdf_source_url: o.pdf_source_url,
       trim_width_mm: o.trim_width_mm,
       trim_height_mm: o.trim_height_mm,
@@ -666,7 +666,7 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
         job_label: dominantItem.job_label || 'Print job 1/2',
         order_index: dominantItem.order_index,
         total_orders: orders.length,
-        barcode_value: '2954592808',
+        barcode_value: '2954502725',
         bleed_box: {
           x1: itemX,
           y1: itemY,

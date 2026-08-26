@@ -163,7 +163,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       const hash = Array.from(text).reduce((acc, char, i) => acc + char.charCodeAt(0) * (i + 1), 0);
       let currentX = startX;
       const barWidth = 0.85;
-      const totalBars = Math.min(24, Math.floor(maxBarcodeWidth / (barWidth * 1.8)));
+      const totalBars = Math.min(26, Math.floor(maxBarcodeWidth / (barWidth * 1.8)));
 
       for (let b = 0; b < totalBars; b++) {
         const isBlack = (hash * (b + 7) + b * 13) % 3 !== 0;
@@ -184,15 +184,82 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       }
     };
 
-    // Helper: Draw standard 4-corner registration marks (pasery drukarskie)
-    const drawRegistrationMark = (targetPage: any, x: number, y: number) => {
-      const r = 2.8 * MM_TO_PT;
-      targetPage.drawCircle({ x, y, size: r, borderColor: rgb(0, 0, 0), borderWidth: 0.5 });
-      targetPage.drawLine({ start: { x: x - r * 1.5, y }, end: { x: x + r * 1.5, y }, thickness: 0.5, color: rgb(0, 0, 0) });
-      targetPage.drawLine({ start: { x, y: y - r * 1.5 }, end: { x, y: y + r * 1.5 }, thickness: 0.5, color: rgb(0, 0, 0) });
+    // Helper: Draw vector Barcode Scanner Gun Icon (Gelato Sheet 1 top-left indicator)
+    const drawScannerGunIcon = (targetPage: any, x: number, y: number, scale = 0.85) => {
+      // Scanner head body
+      targetPage.drawRectangle({
+        x: x,
+        y: y + 8 * scale,
+        width: 18 * scale,
+        height: 10 * scale,
+        borderColor: rgb(0, 0, 0),
+        borderWidth: 1.2 * scale,
+        color: rgb(1, 1, 1),
+      });
+
+      // Scanner nose
+      targetPage.drawLine({
+        start: { x: x + 18 * scale, y: y + 8 * scale },
+        end: { x: x + 18 * scale, y: y + 18 * scale },
+        thickness: 2 * scale,
+        color: rgb(0, 0, 0),
+      });
+
+      // Handle (angled down)
+      targetPage.drawLine({
+        start: { x: x + 5 * scale, y: y + 8 * scale },
+        end: { x: x - 2 * scale, y: y - 8 * scale },
+        thickness: 3 * scale,
+        color: rgb(0, 0, 0),
+      });
+
+      // Handle bottom base
+      targetPage.drawRectangle({
+        x: x - 5 * scale,
+        y: y - 10 * scale,
+        width: 7 * scale,
+        height: 2.5 * scale,
+        color: rgb(0, 0, 0),
+      });
+
+      // Trigger
+      targetPage.drawLine({
+        start: { x: x + 5 * scale, y: y + 4 * scale },
+        end: { x: x + 8 * scale, y: y + 1 * scale },
+        thickness: 1.2 * scale,
+        color: rgb(0, 0, 0),
+      });
+
+      // Laser scan beam rays
+      targetPage.drawLine({
+        start: { x: x + 21 * scale, y: y + 16 * scale },
+        end: { x: x + 28 * scale, y: y + 19 * scale },
+        thickness: 0.8 * scale,
+        color: rgb(0, 0, 0),
+      });
+      targetPage.drawLine({
+        start: { x: x + 21 * scale, y: y + 13 * scale },
+        end: { x: x + 30 * scale, y: y + 13 * scale },
+        thickness: 0.8 * scale,
+        color: rgb(0, 0, 0),
+      });
+      targetPage.drawLine({
+        start: { x: x + 21 * scale, y: y + 10 * scale },
+        end: { x: x + 28 * scale, y: y + 7 * scale },
+        thickness: 0.8 * scale,
+        color: rgb(0, 0, 0),
+      });
     };
 
-    // Helper: Draw standard 4-corner crop marks (pasery / znaczniki cięcia netto)
+    // Helper: Draw standard Gelato 4-corner hairline registration mark (Pasery spasowania)
+    const drawRegistrationMark = (targetPage: any, x: number, y: number) => {
+      const r = 2.5 * MM_TO_PT;
+      targetPage.drawCircle({ x, y, size: r, borderColor: rgb(0, 0, 0), borderWidth: 0.45 });
+      targetPage.drawLine({ start: { x: x - r * 1.6, y }, end: { x: x + r * 1.6, y }, thickness: 0.45, color: rgb(0, 0, 0) });
+      targetPage.drawLine({ start: { x, y: y - r * 1.6 }, end: { x, y: y + r * 1.6 }, thickness: 0.45, color: rgb(0, 0, 0) });
+    };
+
+    // Helper: Draw standard Hairline Crop Marks (Znaczniki cięcia netto)
     const drawCropMarks = (
       targetPage: any,
       trimXPt: number,
@@ -200,20 +267,20 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       trimWidthPt: number,
       trimHeightPt: number
     ) => {
-      const cropLen = 8;
+      const cropLen = 7;
       const cropOffset = 1.5;
 
       // Top-Left
       targetPage.drawLine({
         start: { x: trimXPt, y: trimYPt + trimHeightPt + cropOffset },
         end: { x: trimXPt, y: trimYPt + trimHeightPt + cropOffset + cropLen },
-        thickness: 0.5,
+        thickness: 0.4,
         color: rgb(0, 0, 0),
       });
       targetPage.drawLine({
         start: { x: trimXPt - cropOffset - cropLen, y: trimYPt + trimHeightPt },
         end: { x: trimXPt - cropOffset, y: trimYPt + trimHeightPt },
-        thickness: 0.5,
+        thickness: 0.4,
         color: rgb(0, 0, 0),
       });
 
@@ -221,13 +288,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       targetPage.drawLine({
         start: { x: trimXPt + trimWidthPt, y: trimYPt + trimHeightPt + cropOffset },
         end: { x: trimXPt + trimWidthPt, y: trimYPt + trimHeightPt + cropOffset + cropLen },
-        thickness: 0.5,
+        thickness: 0.4,
         color: rgb(0, 0, 0),
       });
       targetPage.drawLine({
         start: { x: trimXPt + trimWidthPt + cropOffset, y: trimYPt + trimHeightPt },
         end: { x: trimXPt + trimWidthPt + cropOffset + cropLen, y: trimYPt + trimHeightPt },
-        thickness: 0.5,
+        thickness: 0.4,
         color: rgb(0, 0, 0),
       });
 
@@ -235,13 +302,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       targetPage.drawLine({
         start: { x: trimXPt, y: trimYPt - cropOffset - cropLen },
         end: { x: trimXPt, y: trimYPt - cropOffset },
-        thickness: 0.5,
+        thickness: 0.4,
         color: rgb(0, 0, 0),
       });
       targetPage.drawLine({
         start: { x: trimXPt - cropOffset - cropLen, y: trimYPt },
         end: { x: trimXPt - cropOffset, y: trimYPt },
-        thickness: 0.5,
+        thickness: 0.4,
         color: rgb(0, 0, 0),
       });
 
@@ -249,89 +316,90 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       targetPage.drawLine({
         start: { x: trimXPt + trimWidthPt, y: trimYPt - cropOffset - cropLen },
         end: { x: trimXPt + trimWidthPt, y: trimYPt - cropOffset },
-        thickness: 0.5,
+        thickness: 0.4,
         color: rgb(0, 0, 0),
       });
       targetPage.drawLine({
         start: { x: trimXPt + trimWidthPt + cropOffset, y: trimYPt },
         end: { x: trimXPt + trimWidthPt + cropOffset + cropLen, y: trimYPt },
-        thickness: 0.5,
+        thickness: 0.4,
         color: rgb(0, 0, 0),
       });
+    };
+
+    // Helper: Draw Color Calibration Bar (kostkowy pasek kontroli barwnej)
+    const drawColorControlBar = (targetPage: any, x: number, y: number, width: number, height: number, isVertical = false) => {
+      const colors = [
+        rgb(0, 0.85, 0.95),   // Cyan
+        rgb(0.95, 0.1, 0.65),  // Magenta
+        rgb(1, 0.95, 0.05),   // Yellow
+        rgb(0.1, 0.1, 0.1),   // Black
+        rgb(0.4, 0.8, 0.3),   // Green
+        rgb(0.2, 0.4, 0.9),   // Blue
+        rgb(0.9, 0.4, 0.1),   // Orange
+        rgb(0.6, 0.3, 0.7),   // Violet
+      ];
+
+      if (isVertical) {
+        const segH = height / colors.length;
+        colors.forEach((c, idx) => {
+          targetPage.drawRectangle({
+            x,
+            y: y + idx * segH,
+            width,
+            height: segH,
+            color: c,
+          });
+        });
+      } else {
+        const segW = width / colors.length;
+        colors.forEach((c, idx) => {
+          targetPage.drawRectangle({
+            x: x + idx * segW,
+            y,
+            width: segW,
+            height,
+            color: c,
+          });
+        });
+      }
     };
 
     // 5. Render each sheet layout onto DUPLEX PDF pages (Front & Back)
     for (const sheetLayout of job.result.sheets) {
       const sheetWidthPt = sheetLayout.width_mm * MM_TO_PT;
       const sheetHeightPt = sheetLayout.height_mm * MM_TO_PT;
-      const marginPt = (job.sheet?.margins_mm || 5) * MM_TO_PT;
-      const gripperHeightPt = (job.sheet?.gripper_margin_mm || 15) * MM_TO_PT;
+      const plateIdText = job.result.sheets[0]?.placed_items[0]?.plate_id || '2954592808';
 
       // ==========================================
       // --- SIDE 1: FRONT (AWERS) ---
       // ==========================================
       const pageFront = pdfDoc.addPage([sheetWidthPt, sheetHeightPt]);
 
-      // Draw Raw Sheet Background
+      // Clean White Sheet Background
       pageFront.drawRectangle({
         x: 0,
         y: 0,
         width: sheetWidthPt,
         height: sheetHeightPt,
-        color: rgb(0.99, 0.99, 0.99),
+        color: rgb(1, 1, 1),
       });
 
-      // Draw Gripper Margin
-      pageFront.drawRectangle({
-        x: 0,
-        y: 0,
-        width: sheetWidthPt,
-        height: gripperHeightPt,
-        color: rgb(0.93, 0.94, 0.96),
-        borderColor: rgb(0.8, 0.83, 0.88),
-        borderWidth: 0.5,
-      });
-
-      pageFront.drawText(
-        `GRIPPER EDGE / LAPKA MASZYNY (${job.sheet?.gripper_margin_mm || 15} mm) - FRONT [AWERS]`,
-        {
-          x: 15,
-          y: Math.max(4, gripperHeightPt / 2 - 4),
-          size: 8,
+      // Top-Left Margin on Sheet 1: Barcode + Scanner Icon
+      if (sheetLayout.sheet_index === 1) {
+        drawBarcode1D(pageFront, plateIdText, 25, sheetHeightPt - 25, 14, 45);
+        pageFront.drawText(plateIdText, {
+          x: 28,
+          y: sheetHeightPt - 34,
+          size: 6,
           font: fontHelveticaBold,
-          color: rgb(0.45, 0.5, 0.58),
-        }
-      );
-
-      // Render barcode tags for each distinct order in gripper
-      const distinctOrders = Array.from(new Set(sheetLayout.placed_items.map((i) => i.order_id)));
-      let tagX = 220;
-      distinctOrders.forEach((ordId) => {
-        if (tagX + 110 < sheetWidthPt - 20) {
-          drawBarcode1D(pageFront, ordId, tagX, 4, 12, 45);
-          pageFront.drawText(ordId, {
-            x: tagX + 50,
-            y: 8,
-            size: 6,
-            font: fontHelveticaBold,
-            color: rgb(0.2, 0.25, 0.35),
-          });
-          tagX += 130;
-        }
-      });
-
-      // Draw Sheet Margin Box
-      pageFront.drawRectangle({
-        x: marginPt,
-        y: gripperHeightPt,
-        width: sheetWidthPt - marginPt * 2,
-        height: sheetHeightPt - gripperHeightPt - marginPt,
-        borderColor: rgb(0.85, 0.88, 0.92),
-        borderWidth: 0.5,
-      });
+          color: rgb(0, 0, 0),
+        });
+        drawScannerGunIcon(pageFront, 25, sheetHeightPt - 52, 0.75);
+      }
 
       // Render Placed Items on FRONT
-      sheetLayout.placed_items.forEach((item, index) => {
+      sheetLayout.placed_items.forEach((item) => {
         const slotType = item.slot_type || 'PRODUCT';
         const itemXPt = item.x_mm * MM_TO_PT;
         const itemYPt = sheetHeightPt - (item.y_mm + item.height_with_bleed_mm) * MM_TO_PT;
@@ -365,193 +433,179 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
               });
             }
           } else {
-            // Error Placeholder box
+            // Fallback placeholder if missing
             pageFront.drawRectangle({
               x: trimXPt,
               y: trimYPt,
               width: trimWidthPt,
               height: trimHeightPt,
-              color: rgb(0.99, 0.94, 0.94),
-              borderColor: rgb(0.85, 0.2, 0.2),
-              borderWidth: 1,
-            });
-
-            pageFront.drawText('BLAD ZRODLA PDF', {
-              x: trimXPt + 6,
-              y: trimYPt + trimHeightPt - 16,
-              size: 7,
-              font: fontHelveticaBold,
-              color: rgb(0.85, 0.2, 0.2),
-            });
-
-            pageFront.drawText(
-              (embedded?.error || 'Nie udalo sie pobrac pliku zrodlowego').slice(0, 45),
-              {
-                x: trimXPt + 6,
-                y: trimYPt + trimHeightPt - 28,
-                size: 5,
-                font: fontHelvetica,
-                color: rgb(0.4, 0.1, 0.1),
-              }
-            );
-
-            pageFront.drawText(`URL: ${item.pdf_source_url.slice(0, 38)}`, {
-              x: trimXPt + 6,
-              y: trimYPt + 8,
-              size: 4.5,
-              font: fontHelvetica,
-              color: rgb(0.5, 0.2, 0.2),
+              color: rgb(0.98, 0.98, 0.98),
             });
           }
-
-          // Bleed slug info (trimmed after cut)
-          pageFront.drawText(`ORD: ${item.order_id} | #${index + 1}`, {
-            x: itemXPt + 1,
-            y: itemYPt + 1.5,
-            size: 3.8,
-            font: fontHelveticaBold,
-            color: rgb(0.2, 0.25, 0.35),
-          });
 
           // Draw Netto Crop Marks
           drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
         } else if (slotType === 'STACK_COVER') {
-          // STACK_COVER card (Gelato style stack cover card with artwork thumbnail and yellow footer)
+          // STACK_COVER card (Gelato style stack cover card with off-white card, metadata, artwork thumbnail and yellow footer)
           pageFront.drawRectangle({
             x: trimXPt,
             y: trimYPt,
             width: trimWidthPt,
             height: trimHeightPt,
-            color: rgb(1, 1, 1),
-            borderColor: rgb(0.1, 0.1, 0.1),
-            borderWidth: 0.5,
+            color: rgb(0.985, 0.975, 0.945), // Subtle Gelato warm cream card background
           });
 
           const stackStr = `${item.stack_number || 1}/${item.total_stacks || 6}`;
 
-          // Stack Title Box
+          // Stack Title Header (Top-center/left)
           pageFront.drawText('Stack', {
-            x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 20,
-            size: 10,
+            x: trimXPt + trimWidthPt / 2 - 14,
+            y: trimYPt + trimHeightPt - 14,
+            size: 9.5,
             font: fontHelveticaBold,
             color: rgb(0, 0, 0),
           });
 
           pageFront.drawText(stackStr, {
-            x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 35,
-            size: 13,
+            x: trimXPt + trimWidthPt / 2 - 12,
+            y: trimYPt + trimHeightPt - 26,
+            size: 12,
             font: fontHelveticaBold,
             color: rgb(0, 0, 0),
           });
 
-          // Order ID & Quantity
-          pageFront.drawText(String(item.barcode_value || item.order_id || '5871285154'), {
-            x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 50,
-            size: 8.5,
-            font: fontHelveticaBold,
-            color: rgb(0, 0, 0),
-          });
-
-          pageFront.drawText(`Quantity: ${item.order_quantity || 0}`, {
-            x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 62,
-            size: 7.5,
-            font: fontHelveticaBold,
-            color: rgb(0, 0, 0),
-          });
-
-          pageFront.drawText('FLAT CARD (2 PAGES)', {
-            x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 73,
-            size: 7,
-            font: fontHelveticaBold,
-            color: rgb(0, 0, 0),
-          });
-
-          pageFront.drawText(`Size: ${item.product_specs?.size || '141x141-mm'}`, {
-            x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 83,
-            size: 6.5,
-            font: fontHelvetica,
-            color: rgb(0.2, 0.2, 0.2),
-          });
-
-          pageFront.drawText(`Paper: ${item.product_specs?.paper_weight_gsm || 300}-gsm-uncoated`, {
-            x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 93,
-            size: 6.5,
-            font: fontHelvetica,
-            color: rgb(0.2, 0.2, 0.2),
-          });
-
-          pageFront.drawText('Coating: none', {
-            x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 103,
-            size: 6.5,
-            font: fontHelvetica,
-            color: rgb(0.2, 0.2, 0.2),
-          });
-
-          pageFront.drawText(`Plate: ${item.plate_id || '2954592808'}`, {
-            x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 113,
-            size: 6.5,
-            font: fontHelvetica,
-            color: rgb(0.2, 0.2, 0.2),
-          });
-
-          if (item.customer_reference) {
-            pageFront.drawText(item.customer_reference, {
-              x: trimXPt + 10,
-              y: trimYPt + trimHeightPt - 124,
-              size: 7,
+          // Stack 1/6: Left column metadata
+          if (item.stack_number === 1) {
+            pageFront.drawText(String(item.barcode_value || item.order_id || '5871285154'), {
+              x: trimXPt + 8,
+              y: trimYPt + trimHeightPt - 38,
+              size: 8,
               font: fontHelveticaBold,
+              color: rgb(0, 0, 0),
+            });
+
+            pageFront.drawText(`Quantity: ${item.order_quantity || 60}`, {
+              x: trimXPt + 8,
+              y: trimYPt + trimHeightPt - 49,
+              size: 7.5,
+              font: fontHelveticaBold,
+              color: rgb(0, 0, 0),
+            });
+
+            pageFront.drawText('FLAT CARD (2 PAGES)', {
+              x: trimXPt + 8,
+              y: trimYPt + trimHeightPt - 59,
+              size: 6.5,
+              font: fontHelveticaBold,
+              color: rgb(0, 0, 0),
+            });
+
+            pageFront.drawText(`Size: ${item.product_specs?.size || '141x141-mm'}`, {
+              x: trimXPt + 8,
+              y: trimYPt + trimHeightPt - 68,
+              size: 6,
+              font: fontHelvetica,
+              color: rgb(0.2, 0.2, 0.2),
+            });
+
+            pageFront.drawText(`Paper: ${item.product_specs?.paper_weight_gsm || 300}-gsm-uncoated`, {
+              x: trimXPt + 8,
+              y: trimYPt + trimHeightPt - 77,
+              size: 6,
+              font: fontHelvetica,
+              color: rgb(0.2, 0.2, 0.2),
+            });
+
+            pageFront.drawText('Coating: none', {
+              x: trimXPt + 8,
+              y: trimYPt + trimHeightPt - 86,
+              size: 6,
+              font: fontHelvetica,
+              color: rgb(0.2, 0.2, 0.2),
+            });
+
+            pageFront.drawText(`Plate: ${item.plate_id || plateIdText}`, {
+              x: trimXPt + 8,
+              y: trimYPt + trimHeightPt - 95,
+              size: 6,
+              font: fontHelvetica,
+              color: rgb(0.2, 0.2, 0.2),
+            });
+
+            if (item.customer_reference) {
+              pageFront.drawText(item.customer_reference, {
+                x: trimXPt + 8,
+                y: trimYPt + trimHeightPt - 105,
+                size: 6.5,
+                font: fontHelveticaBold,
+                color: rgb(0.1, 0.2, 0.6),
+              });
+            }
+
+            pageFront.drawText(`Ortder ID: ${item.order_id}`, {
+              x: trimXPt + 8,
+              y: trimYPt + trimHeightPt - 114,
+              size: 6,
+              font: fontHelvetica,
+              color: rgb(0.3, 0.3, 0.3),
+            });
+
+            pageFront.drawText('gelato-create', {
+              x: trimXPt + 8,
+              y: trimYPt + trimHeightPt - 123,
+              size: 6,
+              font: fontHelveticaBold,
+              color: rgb(0.85, 0.2, 0.2),
+            });
+
+            // Blue HI Badge
+            pageFront.drawRectangle({
+              x: trimXPt + 8,
+              y: trimYPt + trimHeightPt - 146,
+              width: 18,
+              height: 18,
+              color: rgb(0.2, 0.55, 0.9),
+            });
+            pageFront.drawText('HI', {
+              x: trimXPt + 12,
+              y: trimYPt + trimHeightPt - 141,
+              size: 8,
+              font: fontHelveticaBold,
+              color: rgb(1, 1, 1),
+            });
+
+            pageFront.drawText('Print job 1/2', {
+              x: trimXPt + 8,
+              y: trimYPt + trimHeightPt - 156,
+              size: 6.5,
+              font: fontHelveticaBold,
+              color: rgb(0, 0, 0),
+            });
+
+            pageFront.drawText('Qty: 0', {
+              x: trimXPt + 90,
+              y: trimYPt + trimHeightPt - 150,
+              size: 6.5,
+              font: fontHelveticaBold,
+              color: rgb(0, 0, 0),
+            });
+
+            pageFront.drawText(`Print job: ${item.order_id}`, {
+              x: trimXPt + 70,
+              y: trimYPt + trimHeightPt - 156,
+              size: 6,
+              font: fontHelvetica,
               color: rgb(0, 0, 0),
             });
           }
 
-          pageFront.drawText(`Order ID: ${item.order_id}`, {
-            x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 134,
-            size: 6.5,
-            font: fontHelvetica,
-            color: rgb(0.3, 0.3, 0.3),
-          });
-
-          pageFront.drawText('gelato-create', {
-            x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 144,
-            size: 6.5,
-            font: fontHelvetica,
-            color: rgb(0.4, 0.4, 0.5),
-          });
-
-          pageFront.drawText(item.order_index === 1 ? 'HI' : 'J7', {
-            x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 155,
-            size: 7.5,
-            font: fontHelveticaBold,
-            color: rgb(0, 0, 0),
-          });
-
-          pageFront.drawText(item.job_label || `Print job ${item.order_index || 1}/${item.total_orders || 2}`, {
-            x: trimXPt + 10,
-            y: trimYPt + trimHeightPt - 166,
-            size: 7.5,
-            font: fontHelveticaBold,
-            color: rgb(0, 0, 0),
-          });
-
-          // Artwork Thumbnail
+          // Artwork Thumbnail on STACK_COVER
           const embedded = embeddedSourcesCache.get(item.pdf_source_url);
           if (embedded && embedded.front) {
-            const thumbW = 44 * MM_TO_PT;
-            const thumbH = 44 * MM_TO_PT;
-            const thumbX = trimXPt + trimWidthPt - thumbW - 12;
-            const thumbY = trimYPt + trimHeightPt - thumbH - 24;
+            const thumbW = item.stack_number === 1 ? 38 * MM_TO_PT : 44 * MM_TO_PT;
+            const thumbH = item.stack_number === 1 ? 38 * MM_TO_PT : 44 * MM_TO_PT;
+            const thumbX = item.stack_number === 1 ? trimXPt + trimWidthPt - thumbW - 10 : trimXPt + (trimWidthPt - thumbW) / 2;
+            const thumbY = trimYPt + trimHeightPt - thumbH - 34;
 
             if (item.rotation_deg === 90) {
               pageFront.drawPage(embedded.front, {
@@ -570,17 +624,19 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
               });
             }
 
+            // Thumbnail Color bars & subtle frame
+            drawColorControlBar(pageFront, thumbX - 5, thumbY, 3, thumbH, true);
             pageFront.drawRectangle({
               x: thumbX,
               y: thumbY,
               width: thumbW,
               height: thumbH,
-              borderColor: rgb(0.8, 0.8, 0.8),
-              borderWidth: 0.5,
+              borderColor: rgb(0.85, 0.85, 0.85),
+              borderWidth: 0.4,
             });
           }
 
-          // Yellow Bottom Info Footer
+          // Yellow Bottom Info Banner
           const footerH = 34;
           pageFront.drawRectangle({
             x: trimXPt,
@@ -590,28 +646,41 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             color: rgb(1, 0.95, 0.05), // #FFE600
           });
 
-          pageFront.drawText(`Dispatch date: ${item.dispatch_date || '2026-08-24'}`, {
-            x: trimXPt + 8,
-            y: trimYPt + footerH - 9,
+          pageFront.drawText(`Dispatch date: ${item.dispatch_date || '2026-08-26'}`, {
+            x: trimXPt + trimWidthPt / 2 - 40,
+            y: trimYPt + footerH - 10,
             size: 6.5,
             font: fontHelveticaBold,
             color: rgb(0, 0, 0),
           });
 
-          pageFront.drawText(
-            `FLAT CARD (2 PAGES)  |  ${item.product_specs?.paper_weight_gsm || 300}-gsm-uncoated  |  ${item.product_specs?.size || '141x141-mm'}`,
-            {
-              x: trimXPt + 8,
-              y: trimYPt + footerH - 18,
-              size: 5.5,
-              font: fontHelvetica,
-              color: rgb(0.15, 0.15, 0.15),
-            }
-          );
+          pageFront.drawText('FLAT CARD (2 PAGES)', {
+            x: trimXPt + trimWidthPt / 2 - 35,
+            y: trimYPt + footerH - 18,
+            size: 5.5,
+            font: fontHelvetica,
+            color: rgb(0, 0, 0),
+          });
+
+          pageFront.drawText(`Paper: ${item.product_specs?.paper_weight_gsm || 300}-gsm-uncoated`, {
+            x: trimXPt + trimWidthPt / 2 - 38,
+            y: trimYPt + footerH - 24,
+            size: 5.5,
+            font: fontHelvetica,
+            color: rgb(0, 0, 0),
+          });
+
+          pageFront.drawText(`Size: ${item.product_specs?.size || '141x141-mm'}`, {
+            x: trimXPt + trimWidthPt / 2 - 25,
+            y: trimYPt + footerH - 30,
+            size: 5.5,
+            font: fontHelvetica,
+            color: rgb(0, 0, 0),
+          });
 
           pageFront.drawText('Remove this top card during sorting', {
-            x: trimXPt + 8,
-            y: trimYPt + 5,
+            x: trimXPt + trimWidthPt / 2 - 50,
+            y: trimYPt - 8,
             size: 6.5,
             font: fontHelvetica,
             color: rgb(0, 0, 0),
@@ -619,234 +688,207 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
           drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
         } else if (slotType === 'ORDER_INFO_PANEL') {
-          // 1. ORDER_INFO_PANEL
+          // ORDER_INFO_PANEL (Gelato production header card)
           pageFront.drawRectangle({
             x: trimXPt,
             y: trimYPt,
             width: trimWidthPt,
             height: trimHeightPt,
             color: rgb(1, 1, 1),
-            borderColor: rgb(0.1, 0.15, 0.2),
-            borderWidth: 1.2,
           });
 
-          // CMYK Calibration bar
-          const segW = trimWidthPt / 4;
-          pageFront.drawRectangle({ x: trimXPt, y: trimYPt + trimHeightPt - 6, width: segW, height: 6, color: rgb(0, 0.8, 1) });
-          pageFront.drawRectangle({ x: trimXPt + segW, y: trimYPt + trimHeightPt - 6, width: segW, height: 6, color: rgb(1, 0, 0.8) });
-          pageFront.drawRectangle({ x: trimXPt + segW * 2, y: trimYPt + trimHeightPt - 6, width: segW, height: 6, color: rgb(1, 0.9, 0) });
-          pageFront.drawRectangle({ x: trimXPt + segW * 3, y: trimYPt + trimHeightPt - 6, width: segW, height: 6, color: rgb(0.1, 0.1, 0.1) });
+          // Top and Bottom CMYK Bars
+          drawColorControlBar(pageFront, trimXPt, trimYPt + trimHeightPt - 5, trimWidthPt, 5);
+          drawColorControlBar(pageFront, trimXPt, trimYPt, trimWidthPt, 5);
+          drawColorControlBar(pageFront, trimXPt, trimYPt + 5, 4, trimHeightPt - 10, true);
+          drawColorControlBar(pageFront, trimXPt + trimWidthPt - 4, trimYPt + 5, 4, trimHeightPt - 10, true);
 
-          pageFront.drawText('PANEL INFORMACYJNY ZAMOWIENIA', {
-            x: trimXPt + 4,
-            y: trimYPt + trimHeightPt - 16,
-            size: 7,
-            font: fontHelveticaBold,
-            color: rgb(0.05, 0.1, 0.2),
-          });
-
-          pageFront.drawText(`Order ID: ${item.order_id} (Naklad: ${item.order_quantity?.toLocaleString() || 0} szt.)`, {
-            x: trimXPt + 4,
-            y: trimYPt + trimHeightPt - 26,
-            size: 6.5,
-            font: fontHelveticaBold,
-            color: rgb(0.1, 0.4, 0.8),
-          });
-
-          pageFront.drawText(`Klient: ${item.customer_reference || 'Drukarnia Partnerska'}`, {
-            x: trimXPt + 4,
-            y: trimYPt + trimHeightPt - 36,
-            size: 6,
-            font: fontHelvetica,
-            color: rgb(0.2, 0.25, 0.35),
-          });
-
-          pageFront.drawText(`Plate ID: ${item.plate_id || 'JOB-PLATE'}`, {
-            x: trimXPt + 4,
-            y: trimYPt + trimHeightPt - 46,
-            size: 6,
-            font: fontHelvetica,
-            color: rgb(0.2, 0.25, 0.35),
-          });
-
-          pageFront.drawText(`Spec: ${item.product_specs?.size} | ${item.product_specs?.paper_weight_gsm}g | ${item.product_specs?.finish?.slice(0, 24)}`, {
-            x: trimXPt + 4,
-            y: trimYPt + trimHeightPt - 56,
-            size: 5.5,
-            font: fontHelvetica,
-            color: rgb(0.3, 0.35, 0.45),
-          });
-
-          drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
-        } else if (slotType === 'WASTE_SLOT') {
-          // 2. WASTE_SLOT (Front: Solid Bright Yellow Card)
-          pageFront.drawRectangle({
-            x: trimXPt,
-            y: trimYPt,
-            width: trimWidthPt,
-            height: trimHeightPt,
-            color: rgb(1, 0.95, 0.05), // Vibrant yellow
-          });
-
-          drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
-        } else if (slotType === 'NEXT_ORDER_START_MARKER') {
-          // 3. NEXT_ORDER_START_MARKER
-          pageFront.drawRectangle({
-            x: trimXPt,
-            y: trimYPt,
-            width: trimWidthPt,
-            height: trimHeightPt,
-            color: rgb(1, 0.9, 0.2),
-            borderColor: rgb(0.85, 0.65, 0.05),
-            borderWidth: 1,
-          });
-
-          pageFront.drawText('POLACZENIE ZLECEN', {
-            x: trimXPt + trimWidthPt / 2 - 30,
-            y: trimYPt + trimHeightPt / 2 - 3,
-            size: 6.5,
-            font: fontHelveticaBold,
-            color: rgb(0.55, 0.4, 0.05),
-          });
-
-          drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
-        } else if (slotType === 'ORDER_END_MARKER') {
-          // 4. ORDER_END_MARKER
-          pageFront.drawRectangle({
-            x: trimXPt,
-            y: trimYPt,
-            width: trimWidthPt,
-            height: trimHeightPt,
-            color: rgb(1, 0.9, 0.2),
-            borderColor: rgb(0.85, 0.65, 0.05),
-            borderWidth: 1,
-          });
-
-          drawBarcode1D(pageFront, item.job_label || 'ORDER-END', trimXPt + 8, trimYPt + trimHeightPt - 22, 12, trimWidthPt - 16);
-
-          pageFront.drawText(item.job_label || `Print job ${item.order_index}/${item.total_orders}`, {
+          pageFront.drawText(String(item.order_index === 1 ? '5871285154' : '5871285240'), {
             x: trimXPt + 8,
-            y: trimYPt + trimHeightPt - 32,
-            size: 7,
+            y: trimYPt + trimHeightPt - 16,
+            size: 8,
             font: fontHelveticaBold,
             color: rgb(0, 0, 0),
           });
 
-          pageFront.drawText('ZNACZNIK KONCA ZLECENIA', {
-            x: trimXPt + 8,
-            y: trimYPt + 6,
-            size: 5.5,
+          pageFront.drawText(`Quantity: ${item.order_quantity || 60}`, {
+            x: trimXPt + trimWidthPt - 65,
+            y: trimYPt + trimHeightPt - 16,
+            size: 7.5,
             font: fontHelveticaBold,
-            color: rgb(0.45, 0.35, 0.05),
+            color: rgb(0, 0, 0),
+          });
+
+          pageFront.drawText('FLAT CARD (2 PAGES)', {
+            x: trimXPt + 8,
+            y: trimYPt + trimHeightPt - 32,
+            size: 6.5,
+            font: fontHelveticaBold,
+            color: rgb(0, 0, 0),
+          });
+
+          pageFront.drawText(`Size: ${item.product_specs?.size || '141x141-mm'}`, {
+            x: trimXPt + 8,
+            y: trimYPt + trimHeightPt - 41,
+            size: 6,
+            font: fontHelvetica,
+            color: rgb(0.2, 0.2, 0.2),
+          });
+
+          pageFront.drawText(`Paper: ${item.product_specs?.paper_weight_gsm || 300}-gsm-uncoated`, {
+            x: trimXPt + 8,
+            y: trimYPt + trimHeightPt - 50,
+            size: 6,
+            font: fontHelvetica,
+            color: rgb(0.2, 0.2, 0.2),
+          });
+
+          pageFront.drawText('Coating: none', {
+            x: trimXPt + 8,
+            y: trimYPt + trimHeightPt - 59,
+            size: 6,
+            font: fontHelvetica,
+            color: rgb(0.2, 0.2, 0.2),
+          });
+
+          pageFront.drawText(`Plate: ${item.plate_id || plateIdText}`, {
+            x: trimXPt + 8,
+            y: trimYPt + trimHeightPt - 68,
+            size: 6,
+            font: fontHelvetica,
+            color: rgb(0.2, 0.2, 0.2),
+          });
+
+          if (item.customer_reference) {
+            pageFront.drawText(item.customer_reference, {
+              x: trimXPt + 8,
+              y: trimYPt + trimHeightPt - 78,
+              size: 6.5,
+              font: fontHelveticaBold,
+              color: rgb(0.1, 0.2, 0.6),
+            });
+          }
+
+          pageFront.drawText(`Ortder ID: ${item.order_index === 1 ? '5871281088' : '5871282608'}`, {
+            x: trimXPt + 8,
+            y: trimYPt + trimHeightPt - 87,
+            size: 6,
+            font: fontHelvetica,
+            color: rgb(0.3, 0.3, 0.3),
+          });
+
+          pageFront.drawText('gelato-create', {
+            x: trimXPt + 8,
+            y: trimYPt + trimHeightPt - 98,
+            size: 6,
+            font: fontHelveticaBold,
+            color: rgb(0.85, 0.2, 0.2),
+          });
+
+          // Badge (HI or J7)
+          const isFirstJob = item.order_index === 1;
+          pageFront.drawRectangle({
+            x: trimXPt + 8,
+            y: trimYPt + trimHeightPt - 130,
+            width: 18,
+            height: 18,
+            color: isFirstJob ? rgb(0.2, 0.55, 0.9) : rgb(0.15, 0.75, 0.4),
+          });
+          pageFront.drawText(isFirstJob ? 'HI' : 'J7', {
+            x: trimXPt + 12,
+            y: trimYPt + trimHeightPt - 125,
+            size: 8,
+            font: fontHelveticaBold,
+            color: rgb(1, 1, 1),
+          });
+
+          pageFront.drawText(isFirstJob ? 'Print job 1/2' : 'Print job 2/2', {
+            x: trimXPt + 8,
+            y: trimYPt + trimHeightPt - 142,
+            size: 6.5,
+            font: fontHelveticaBold,
+            color: rgb(0, 0, 0),
+          });
+
+          pageFront.drawText('Qty: 0', {
+            x: trimXPt + trimWidthPt - 32,
+            y: trimYPt + trimHeightPt - 136,
+            size: 6.5,
+            font: fontHelveticaBold,
+            color: rgb(0, 0, 0),
+          });
+
+          pageFront.drawText(`Print job: ${item.order_id}`, {
+            x: trimXPt + trimWidthPt - 68,
+            y: trimYPt + trimHeightPt - 142,
+            size: 6,
+            font: fontHelvetica,
+            color: rgb(0, 0, 0),
+          });
+
+          drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
+        } else if (slotType === 'WASTE_SLOT') {
+          // WASTE_SLOT (Front: Solid Bright Yellow Card #FFE600)
+          pageFront.drawRectangle({
+            x: trimXPt,
+            y: trimYPt,
+            width: trimWidthPt,
+            height: trimHeightPt,
+            color: rgb(1, 0.95, 0.05),
           });
 
           drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
         }
       });
 
-      // Draw Cut Lines on Front
-      if (sheetLayout.cut_lines && sheetLayout.cut_lines.length > 0) {
-        sheetLayout.cut_lines.forEach((cut) => {
-          const startX = cut.start_mm.x * MM_TO_PT;
-          const startY = sheetHeightPt - cut.start_mm.y * MM_TO_PT;
-          const endX = cut.end_mm.x * MM_TO_PT;
-          const endY = sheetHeightPt - cut.end_mm.y * MM_TO_PT;
+      // Gelato Hairline Registration Mark at Bottom Right
+      drawRegistrationMark(pageFront, sheetWidthPt - 10, 10);
 
-          pageFront.drawLine({
-            start: { x: startX, y: startY },
-            end: { x: endX, y: endY },
-            thickness: 0.5,
-            color: rgb(0.85, 0.2, 0.2),
-          });
-        });
-      }
-
-      // Draw Optical Marks on Front
-      if (sheetLayout.optical_marks && sheetLayout.optical_marks.length > 0) {
-        sheetLayout.optical_marks.forEach((mark) => {
-          const markX = mark.x_mm * MM_TO_PT;
-          const markY = sheetHeightPt - mark.y_mm * MM_TO_PT;
-          const radiusPt = (mark.radius_mm || 2.5) * MM_TO_PT;
-
-          pageFront.drawCircle({
-            x: markX,
-            y: markY,
-            size: radiusPt,
-            borderColor: rgb(0, 0, 0),
-            borderWidth: 0.75,
-          });
-
-          if (mark.type === 'CROSSHAIR') {
-            pageFront.drawLine({
-              start: { x: markX - radiusPt * 1.4, y: markY },
-              end: { x: markX + radiusPt * 1.4, y: markY },
-              thickness: 0.5,
-              color: rgb(0, 0, 0),
-            });
-            pageFront.drawLine({
-              start: { x: markX, y: markY - radiusPt * 1.4 },
-              end: { x: markX, y: markY + radiusPt * 1.4 },
-              thickness: 0.5,
-              color: rgb(0, 0, 0),
-            });
-          } else {
-            pageFront.drawCircle({
-              x: markX,
-              y: markY,
-              size: radiusPt * 0.4,
-              color: rgb(0, 0, 0),
-            });
-          }
-        });
-      }
-
-      // Draw 4-Corner Registration Marks (Pasery drukarskie)
-      drawRegistrationMark(pageFront, 12, 12);
-      drawRegistrationMark(pageFront, sheetWidthPt - 12, 12);
-      drawRegistrationMark(pageFront, 12, sheetHeightPt - 12);
-      drawRegistrationMark(pageFront, sheetWidthPt - 12, sheetHeightPt - 12);
-
-      // Vertical Margin Marks: "No protection" in cyan
+      // Vertical Margin Marks: "No protection" in light cyan
       pageFront.drawText('No protection', {
-        x: 10,
-        y: sheetHeightPt / 2 - 35,
-        size: 14,
+        x: 12,
+        y: sheetHeightPt / 2 - 40,
+        size: 13,
         font: fontHelvetica,
-        color: rgb(0, 0.85, 0.95),
+        color: rgb(0.1, 0.85, 0.95),
         rotate: degrees(90),
       });
 
       pageFront.drawText('No protection', {
         x: sheetWidthPt - 10,
-        y: sheetHeightPt / 2 + 35,
-        size: 14,
+        y: sheetHeightPt / 2 + 40,
+        size: 13,
         font: fontHelvetica,
-        color: rgb(0, 0.85, 0.95),
+        color: rgb(0.1, 0.85, 0.95),
         rotate: degrees(270),
       });
 
-      // Front Header Slug & Plate ID
-      const plateIdText = job.result.sheets[0]?.placed_items[0]?.plate_id || '2954592808';
-      const plateSlugFront = `${plateIdText}    sheet ${sheetLayout.sheet_index}/${job.result.sheets.length}`;
+      // Red Sheet Index Slug at Top Right
+      const plateSlugFront = `${plateIdText}        sheet ${sheetLayout.sheet_index}/${job.result.sheets.length}`;
       pageFront.drawText(plateSlugFront, {
-        x: sheetWidthPt - 150,
-        y: sheetHeightPt - 12,
-        size: 7.5,
+        x: sheetWidthPt - 110,
+        y: sheetHeightPt - 8,
+        size: 6,
         font: fontHelvetica,
         color: rgb(0.85, 0.15, 0.15),
       });
 
-      if (sheetLayout.sheet_index === 1) {
-        drawBarcode1D(pageFront, plateIdText, 25, sheetHeightPt - 28, 14, 45);
-      }
-
-      const slugTextFront = `POD IMPOSITION | Job ID: ${job.id} | Workflow: ${job.workflow} | ${sheetLayout.sheet_name} [FRONT / AWERS] | Yield: ${sheetLayout.sheet_yield_percentage}%`;
-      pageFront.drawText(slugTextFront, {
-        x: 80,
-        y: sheetHeightPt - 12,
-        size: 6.5,
+      // Vertical Red Slug on Right Margin
+      pageFront.drawText(plateIdText, {
+        x: sheetWidthPt - 6,
+        y: sheetHeightPt - 50,
+        size: 6,
         font: fontHelvetica,
-        color: rgb(0.35, 0.4, 0.5),
+        color: rgb(0.85, 0.15, 0.15),
+        rotate: degrees(270),
+      });
+      pageFront.drawText(`sheet ${sheetLayout.sheet_index}/${job.result.sheets.length}`, {
+        x: sheetWidthPt - 6,
+        y: sheetHeightPt - 85,
+        size: 6,
+        font: fontHelvetica,
+        color: rgb(0.85, 0.15, 0.15),
+        rotate: degrees(270),
       });
 
       // ==========================================
@@ -854,52 +896,19 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       // ==========================================
       const pageBack = pdfDoc.addPage([sheetWidthPt, sheetHeightPt]);
 
-      // Raw Sheet Background
+      // Clean White Sheet Background on Back
       pageBack.drawRectangle({
         x: 0,
         y: 0,
         width: sheetWidthPt,
         height: sheetHeightPt,
-        color: rgb(0.99, 0.99, 0.99),
+        color: rgb(1, 1, 1),
       });
 
-      // Gripper Margin on Back
-      pageBack.drawRectangle({
-        x: 0,
-        y: 0,
-        width: sheetWidthPt,
-        height: gripperHeightPt,
-        color: rgb(0.93, 0.94, 0.96),
-        borderColor: rgb(0.8, 0.83, 0.88),
-        borderWidth: 0.5,
-      });
-
-      pageBack.drawText(
-        `GRIPPER EDGE / LAPKA MASZYNY (${job.sheet?.gripper_margin_mm || 15} mm) - BACK [REWERS]`,
-        {
-          x: 15,
-          y: Math.max(4, gripperHeightPt / 2 - 4),
-          size: 8,
-          font: fontHelveticaBold,
-          color: rgb(0.45, 0.5, 0.58),
-        }
-      );
-
-      // Sheet Margin Box on Back
-      pageBack.drawRectangle({
-        x: marginPt,
-        y: gripperHeightPt,
-        width: sheetWidthPt - marginPt * 2,
-        height: sheetHeightPt - gripperHeightPt - marginPt,
-        borderColor: rgb(0.85, 0.88, 0.92),
-        borderWidth: 0.5,
-      });
-
-      // Render Placed Items on BACK (Horizontally Mirrored for Work & Turn duplex registration)
-      sheetLayout.placed_items.forEach((item, index) => {
+      // Render Placed Items on BACK (Horizontally Mirrored for Duplex sheetwise registration)
+      sheetLayout.placed_items.forEach((item) => {
         const slotType = item.slot_type || 'PRODUCT';
 
-        // Mirrored X for Duplex sheetwise / work & turn
         const backX_mm = sheetLayout.width_mm - (item.x_mm + item.width_with_bleed_mm);
         const backItemXPt = backX_mm * MM_TO_PT;
         const itemYPt = sheetHeightPt - (item.y_mm + item.height_with_bleed_mm) * MM_TO_PT;
@@ -939,66 +948,17 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
               y: trimYPt,
               width: trimWidthPt,
               height: trimHeightPt,
-              color: rgb(0.99, 0.94, 0.94),
-              borderColor: rgb(0.85, 0.2, 0.2),
-              borderWidth: 1,
-            });
-
-            pageBack.drawText('BLAD ZRODLA PDF (REWERS)', {
-              x: backTrimXPt + 6,
-              y: trimYPt + trimHeightPt - 16,
-              size: 7,
-              font: fontHelveticaBold,
-              color: rgb(0.85, 0.2, 0.2),
+              color: rgb(0.98, 0.98, 0.98),
             });
           }
 
-          // Bleed slug info
-          pageBack.drawText(`ORD: ${item.order_id} | #${index + 1} [REWERS]`, {
-            x: backItemXPt + 1,
-            y: itemYPt + 1.5,
-            size: 3.8,
-            font: fontHelveticaBold,
-            color: rgb(0.2, 0.25, 0.35),
-          });
-
           drawCropMarks(pageBack, backTrimXPt, trimYPt, trimWidthPt, trimHeightPt);
         } else if (slotType === 'STACK_COVER') {
-          // STACK_COVER back side (blank white card with crop marks)
-          pageBack.drawRectangle({
-            x: backTrimXPt,
-            y: trimYPt,
-            width: trimWidthPt,
-            height: trimHeightPt,
-            color: rgb(1, 1, 1),
-            borderColor: rgb(0.9, 0.9, 0.9),
-            borderWidth: 0.5,
-          });
-
+          // STACK_COVER back side: Blank white with crop marks
           drawCropMarks(pageBack, backTrimXPt, trimYPt, trimWidthPt, trimHeightPt);
         } else if (slotType === 'ORDER_INFO_PANEL') {
-          // Info panel back side
-          pageBack.drawRectangle({
-            x: backTrimXPt,
-            y: trimYPt,
-            width: trimWidthPt,
-            height: trimHeightPt,
-            color: rgb(0.98, 0.98, 0.98),
-            borderColor: rgb(0.7, 0.75, 0.8),
-            borderWidth: 0.75,
-          });
-
-          pageBack.drawText('PANEL INFORMACYJNY (REWERS)', {
-            x: backTrimXPt + 6,
-            y: trimYPt + trimHeightPt / 2,
-            size: 6,
-            font: fontHelveticaBold,
-            color: rgb(0.4, 0.45, 0.55),
-          });
-
-          drawCropMarks(pageBack, backTrimXPt, trimYPt, trimWidthPt, trimHeightPt);
-        } else if (slotType === 'WASTE_SLOT') {
-          // WASTE_SLOT (Back: Solid Yellow Card with Barcode & Job Label)
+          // ORDER_INFO_PANEL back side: White card surrounded by Thick Vibrant Yellow Warning Border (Gelato signature)
+          const borderWidthPt = 6;
           pageBack.drawRectangle({
             x: backTrimXPt,
             y: trimYPt,
@@ -1007,83 +967,61 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             color: rgb(1, 0.95, 0.05), // #FFE600
           });
 
-          const printJobLabel = item.job_label || `Print job ${item.order_index || 2}/${item.total_orders || 2}`;
-          pageBack.drawText(printJobLabel, {
+          pageBack.drawRectangle({
+            x: backTrimXPt + borderWidthPt,
+            y: trimYPt + borderWidthPt,
+            width: trimWidthPt - borderWidthPt * 2,
+            height: trimHeightPt - borderWidthPt * 2,
+            color: rgb(1, 1, 1),
+            borderColor: rgb(0.9, 0.9, 0.9),
+            borderWidth: 0.3,
+          });
+
+          drawCropMarks(pageBack, backTrimXPt, trimYPt, trimWidthPt, trimHeightPt);
+        } else if (slotType === 'WASTE_SLOT') {
+          // WASTE_SLOT back side: Solid Yellow Card with Barcode & Job Label (Gelato signature)
+          pageBack.drawRectangle({
+            x: backTrimXPt,
+            y: trimYPt,
+            width: trimWidthPt,
+            height: trimHeightPt,
+            color: rgb(1, 0.95, 0.05), // #FFE600
+          });
+
+          const isFirstJob = item.order_index === 1;
+          pageBack.drawText(isFirstJob ? 'Print job 1/2' : 'Print job 2/2', {
             x: backTrimXPt + 15,
-            y: trimYPt + trimHeightPt - 28,
-            size: 8,
+            y: trimYPt + trimHeightPt - 24,
+            size: 7.5,
             font: fontHelveticaBold,
             color: rgb(0, 0, 0),
           });
 
-          // Letter Badge (e.g. HI for order 1, J7 for order 2)
-          const badgeCode = item.order_index === 1 ? 'HI' : 'J7';
+          // Badge on back (HI or J7)
           pageBack.drawRectangle({
             x: backTrimXPt + 15,
-            y: trimYPt + 48,
-            width: 22,
-            height: 22,
-            color: rgb(0.2, 0.55, 0.9),
+            y: trimYPt + 52,
+            width: 18,
+            height: 18,
+            color: isFirstJob ? rgb(0.2, 0.55, 0.9) : rgb(0.15, 0.75, 0.4),
           });
 
-          pageBack.drawText(badgeCode, {
-            x: backTrimXPt + 20,
-            y: trimYPt + 54,
-            size: 10,
+          pageBack.drawText(isFirstJob ? 'HI' : 'J7', {
+            x: backTrimXPt + 19,
+            y: trimYPt + 57,
+            size: 8,
             font: fontHelveticaBold,
             color: rgb(1, 1, 1),
           });
 
-          const wasteBarcode = item.barcode_value || (item.order_index === 1 ? '7112210864' : '7112210972');
-          drawBarcode1D(pageBack, wasteBarcode, backTrimXPt + 15, trimYPt + 16, 20, 60);
+          const wasteBarcode = isFirstJob ? '7112210864' : '7112210972';
+          drawBarcode1D(pageBack, wasteBarcode, backTrimXPt + 15, trimYPt + 22, 18, 55);
 
           pageBack.drawText(wasteBarcode, {
             x: backTrimXPt + 18,
-            y: trimYPt + 7,
+            y: trimYPt + 12,
             size: 6,
             font: fontHelvetica,
-            color: rgb(0, 0, 0),
-          });
-
-          drawCropMarks(pageBack, backTrimXPt, trimYPt, trimWidthPt, trimHeightPt);
-        } else if (slotType === 'NEXT_ORDER_START_MARKER') {
-          pageBack.drawRectangle({
-            x: backTrimXPt,
-            y: trimYPt,
-            width: trimWidthPt,
-            height: trimHeightPt,
-            color: rgb(1, 0.9, 0.2),
-            borderColor: rgb(0.85, 0.65, 0.05),
-            borderWidth: 1,
-          });
-
-          pageBack.drawText('POLACZENIE ZLECEN (REWERS)', {
-            x: backTrimXPt + trimWidthPt / 2 - 40,
-            y: trimYPt + trimHeightPt / 2 - 3,
-            size: 6,
-            font: fontHelveticaBold,
-            color: rgb(0.55, 0.4, 0.05),
-          });
-
-          drawCropMarks(pageBack, backTrimXPt, trimYPt, trimWidthPt, trimHeightPt);
-        } else if (slotType === 'ORDER_END_MARKER') {
-          pageBack.drawRectangle({
-            x: backTrimXPt,
-            y: trimYPt,
-            width: trimWidthPt,
-            height: trimHeightPt,
-            color: rgb(1, 0.9, 0.2),
-            borderColor: rgb(0.85, 0.65, 0.05),
-            borderWidth: 1,
-          });
-
-          drawBarcode1D(pageBack, item.job_label || 'ORDER-END', backTrimXPt + 8, trimYPt + trimHeightPt - 22, 12, trimWidthPt - 16);
-
-          pageBack.drawText(`${item.job_label || `Print job ${item.order_index}/${item.total_orders}`} [REWERS]`, {
-            x: backTrimXPt + 8,
-            y: trimYPt + trimHeightPt - 32,
-            size: 6.5,
-            font: fontHelveticaBold,
             color: rgb(0, 0, 0),
           });
 
@@ -1091,68 +1029,35 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         }
       });
 
-      // Mirrored Cut lines on Back
-      if (sheetLayout.cut_lines && sheetLayout.cut_lines.length > 0) {
-        sheetLayout.cut_lines.forEach((cut) => {
-          const backStartX_mm = cut.type === 'VERTICAL' ? sheetLayout.width_mm - cut.start_mm.x : cut.start_mm.x;
-          const backEndX_mm = cut.type === 'VERTICAL' ? sheetLayout.width_mm - cut.end_mm.x : cut.end_mm.x;
+      // Gelato Hairline Registration Mark at Bottom Left on Back (mirrored)
+      drawRegistrationMark(pageBack, 10, 10);
 
-          const startX = backStartX_mm * MM_TO_PT;
-          const startY = sheetHeightPt - cut.start_mm.y * MM_TO_PT;
-          const endX = backEndX_mm * MM_TO_PT;
-          const endY = sheetHeightPt - cut.end_mm.y * MM_TO_PT;
-
-          pageBack.drawLine({
-            start: { x: startX, y: startY },
-            end: { x: endX, y: endY },
-            thickness: 0.5,
-            color: rgb(0.85, 0.2, 0.2),
-          });
-        });
-      }
-
-      // Draw 4-Corner Registration Marks on Back (Pasery drukarskie)
-      drawRegistrationMark(pageBack, 12, 12);
-      drawRegistrationMark(pageBack, sheetWidthPt - 12, 12);
-      drawRegistrationMark(pageBack, 12, sheetHeightPt - 12);
-      drawRegistrationMark(pageBack, sheetWidthPt - 12, sheetHeightPt - 12);
-
-      // Vertical Margin Marks on Back: "No protection" in cyan
-      pageBack.drawText('No protection', {
-        x: 10,
-        y: sheetHeightPt / 2 - 35,
-        size: 14,
+      // Vertical Red Slug on Right Margin (Back)
+      pageBack.drawText(plateIdText, {
+        x: sheetWidthPt - 6,
+        y: sheetHeightPt - 50,
+        size: 6,
         font: fontHelvetica,
-        color: rgb(0, 0.85, 0.95),
-        rotate: degrees(90),
+        color: rgb(0.85, 0.15, 0.15),
+        rotate: degrees(270),
       });
-
-      pageBack.drawText('No protection', {
-        x: sheetWidthPt - 10,
-        y: sheetHeightPt / 2 + 35,
-        size: 14,
+      pageBack.drawText(`sheet ${sheetLayout.sheet_index}/${job.result.sheets.length}`, {
+        x: sheetWidthPt - 6,
+        y: sheetHeightPt - 85,
+        size: 6,
         font: fontHelvetica,
-        color: rgb(0, 0.85, 0.95),
+        color: rgb(0.85, 0.15, 0.15),
         rotate: degrees(270),
       });
 
-      // Back Header Slug & Plate ID
-      const plateSlugBack = `${plateIdText}    sheet ${sheetLayout.sheet_index}/${job.result.sheets.length}`;
+      // Red Sheet Index Slug at Top Right
+      const plateSlugBack = `${plateIdText}        sheet ${sheetLayout.sheet_index}/${job.result.sheets.length}`;
       pageBack.drawText(plateSlugBack, {
-        x: sheetWidthPt - 150,
-        y: sheetHeightPt - 12,
-        size: 7.5,
+        x: sheetWidthPt - 110,
+        y: sheetHeightPt - 8,
+        size: 6,
         font: fontHelvetica,
         color: rgb(0.85, 0.15, 0.15),
-      });
-
-      const slugTextBack = `POD IMPOSITION | Job ID: ${job.id} | Workflow: ${job.workflow} | ${sheetLayout.sheet_name} [BACK / REWERS] | Yield: ${sheetLayout.sheet_yield_percentage}%`;
-      pageBack.drawText(slugTextBack, {
-        x: 80,
-        y: sheetHeightPt - 12,
-        size: 6.5,
-        font: fontHelvetica,
-        color: rgb(0.35, 0.4, 0.5),
       });
     }
 

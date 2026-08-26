@@ -11,11 +11,11 @@ export interface PresetDef {
 export const PRESETS: PresetDef[] = [
   {
     id: 'gelato-production-orders',
-    name: 'Produkcja Gelato Cut & Stack 141x141mm (Arkusz SRA3 480x330mm)',
+    name: 'Gelato Cut & Stack 141x141mm (60 szt. + 10 szt.)',
     badge: 'GELATO CUT & STACK / 141x141mm',
-    description: 'Rzeczywista impozycja wielozleceniowa Gelato POD w technologii Cut & Stack: 14 arkuszy (28 stron) na arkuszu SRA3 (480x330mm), 6 słupków (3x2), karty rozdzielające STACK COVER z miniaturami, panele zleceń, żółte separatory odpadu i pasery.',
+    description: 'Impozycja produkcyjna Gelato POD w technologii Cut & Stack: 14 arkuszy (28 stron) SRA3 (480x330mm), 6 stosów (3x2), format 141x141mm, karty rozdzielające STACK COVER z miniaturami, separatory odpadu i panele informacyjne.',
     payload: {
-      name: 'Gelato Cut & Stack 141x141mm (480x330mm SRA3)',
+      name: 'Gelato 141x141mm (Angela Heidl 60 szt + Simone Rohr 10 szt)',
       workflow: 'CUT_AND_STACK',
       device_type: 'GUILLOTINE',
       pdf_standard: 'PDF/X-4',
