@@ -98,7 +98,7 @@ export interface SheetLayout {
   sheet_name: string;
   width_mm: number;
   height_mm: number;
-  gripper_edge: 'BOTTOM' | 'LEFT' | 'TOP' | 'RIGHT';
+  gripper_edge?: 'BOTTOM' | 'LEFT' | 'TOP' | 'RIGHT'; // Deprecated/Unused
   placed_items: PlacedItem[];
   cut_lines?: CutLine[];
   optical_marks?: OpticalMark[];
@@ -150,6 +150,7 @@ export interface JobResult {
   workflow_details: WorkflowDetails;
   service_origin: 'INTERNAL_CALC_ENGINE' | 'EXTERNAL_PYTHON_SERVICE_MOCK' | 'EXTERNAL_PYTHON_CLOUDRUN_LIVE';
   is_sampled_estimate?: boolean;
+  filename_dimension_mismatch_warning?: string;
 }
 
 export interface ImpositionJob {

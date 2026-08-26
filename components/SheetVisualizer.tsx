@@ -166,10 +166,6 @@ export const SheetVisualizer: React.FC<SheetVisualizerProps> = ({
             className="rounded border-2 border-neutral-700 bg-neutral-100 shadow-2xl transition-all"
           >
             <defs>
-              {/* Gripper margin pattern (diagonal stripes) */}
-              <pattern id="gripperStripe" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                <line x1="0" y1="0" x2="0" y2="8" stroke="#f59e0b" strokeWidth="2.5" opacity="0.45" />
-              </pattern>
               {/* Waste area pattern */}
               <pattern id="wastePattern" width="10" height="10" patternUnits="userSpaceOnUse">
                 <rect width="10" height="10" fill="#f3f4f6" />
@@ -179,21 +175,6 @@ export const SheetVisualizer: React.FC<SheetVisualizerProps> = ({
 
             {/* Base paper sheet */}
             <rect x="0" y="0" width={viewBoxWidth} height={viewBoxHeight} fill="url(#wastePattern)" stroke="#4b5563" strokeWidth="1" />
-
-            {/* Gripper margin zone (bottom edge) */}
-            <rect
-              x="0"
-              y="0"
-              width={viewBoxWidth}
-              height="15"
-              fill="url(#gripperStripe)"
-              stroke="#d97706"
-              strokeWidth="0.8"
-              strokeDasharray="3 3"
-            />
-            <text x="12" y="10" fill="#b45309" fontSize="6.5" fontWeight="bold" fontFamily="monospace">
-              GRIPPER MARGIN (ŁAPKA MASZYNY 15mm)
-            </text>
 
             {/* Color control strip on top margin */}
             <g transform={`translate(${viewBoxWidth / 2 - 80}, ${viewBoxHeight - 6})`}>

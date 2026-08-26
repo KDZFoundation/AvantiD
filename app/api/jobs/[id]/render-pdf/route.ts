@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKey } from '@/lib/auth';
 import { getJobFromStore } from '@/lib/job-store';
 import { ImpositionJob } from '@/types/imposition';
-import { PDFDocument, PDFEmbeddedPage, rgb, StandardFonts } from 'pdf-lib';
+import { PDFDocument, PDFEmbeddedPage, rgb, StandardFonts, degrees } from 'pdf-lib';
 import fs from 'fs';
 import path from 'path';
 
@@ -257,7 +257,6 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       const sheetWidthPt = sheetLayout.width_mm * MM_TO_PT;
       const sheetHeightPt = sheetLayout.height_mm * MM_TO_PT;
       const marginPt = (job.sheet?.margins_mm || 5) * MM_TO_PT;
-      const gripperHeightPt = (job.sheet?.gripper_margin_mm || 15) * MM_TO_PT;
 
       // ==========================================
       // --- SIDE 1: FRONT (AWERS) ---
@@ -273,37 +272,16 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         color: rgb(0.99, 0.99, 0.99),
       });
 
-      // Draw Gripper Margin
-      pageFront.drawRectangle({
-        x: 0,
-        y: 0,
-        width: sheetWidthPt,
-        height: gripperHeightPt,
-        color: rgb(0.93, 0.94, 0.96),
-        borderColor: rgb(0.8, 0.83, 0.88),
-        borderWidth: 0.5,
-      });
-
-      pageFront.drawText(
-        `GRIPPER EDGE / LAPKA MASZYNY (${job.sheet?.gripper_margin_mm || 15} mm) - FRONT [AWERS]`,
-        {
-          x: 15,
-          y: Math.max(4, gripperHeightPt / 2 - 4),
-          size: 8,
-          font: fontHelveticaBold,
-          color: rgb(0.45, 0.5, 0.58),
-        }
-      );
-
-      // Render barcode tags for each distinct order in gripper
+      // Render barcode tags for each distinct order in top-left corner
       const distinctOrders = Array.from(new Set(sheetLayout.placed_items.map((i) => i.order_id)));
-      let tagX = 220;
+      let tagX = 15;
+      const tagY = sheetHeightPt - 40;
       distinctOrders.forEach((ordId) => {
-        if (tagX + 110 < sheetWidthPt - 20) {
-          drawBarcode1D(pageFront, ordId, tagX, 4, 12, 45);
+        if (tagX + 110 < sheetWidthPt - 160) {
+          drawBarcode1D(pageFront, ordId, tagX, tagY, 14, 45);
           pageFront.drawText(ordId, {
             x: tagX + 50,
-            y: 8,
+            y: tagY + 3,
             size: 6,
             font: fontHelveticaBold,
             color: rgb(0.2, 0.25, 0.35),
@@ -312,13 +290,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         }
       });
 
-      // Draw Sheet Margin Box
+      // Draw Sheet Margin Box (Centered)
       pageFront.drawRectangle({
         x: marginPt,
-        y: gripperHeightPt,
+        y: marginPt,
         width: sheetWidthPt - marginPt * 2,
-        height: sheetHeightPt - gripperHeightPt - marginPt,
-        borderColor: rgb(0.85, 0.88, 0.92),
+        height: sheetHeightPt - marginPt * 2,
+        borderColor: rgb(0.88, 0.9, 0.94),
         borderWidth: 0.5,
       });
 
@@ -339,13 +317,24 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           const embedded = embeddedSourcesCache.get(item.pdf_source_url);
 
           if (embedded && embedded.front) {
-            // Draw embedded vector source page (Page 1 / Front)
-            pageFront.drawPage(embedded.front, {
-              x: itemXPt,
-              y: itemYPt,
-              width: itemWWithBleedPt,
-              height: itemHWithBleedPt,
-            });
+            // Draw embedded vector source page (Page 1 / Front) with rotation support
+            if (item.rotation_deg === 90) {
+              pageFront.drawPage(embedded.front, {
+                x: itemXPt + itemWWithBleedPt,
+                y: itemYPt,
+                width: itemHWithBleedPt,
+                height: itemWWithBleedPt,
+                rotate: degrees(90),
+              });
+            } else {
+              pageFront.drawPage(embedded.front, {
+                x: itemXPt,
+                y: itemYPt,
+                width: itemWWithBleedPt,
+                height: itemHWithBleedPt,
+                rotate: degrees(0),
+              });
+            }
           } else {
             // Error Placeholder box
             pageFront.drawRectangle({
@@ -781,35 +770,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         color: rgb(0.99, 0.99, 0.99),
       });
 
-      // Gripper Margin on Back
-      pageBack.drawRectangle({
-        x: 0,
-        y: 0,
-        width: sheetWidthPt,
-        height: gripperHeightPt,
-        color: rgb(0.93, 0.94, 0.96),
-        borderColor: rgb(0.8, 0.83, 0.88),
-        borderWidth: 0.5,
-      });
-
-      pageBack.drawText(
-        `GRIPPER EDGE / LAPKA MASZYNY (${job.sheet?.gripper_margin_mm || 15} mm) - BACK [REWERS]`,
-        {
-          x: 15,
-          y: Math.max(4, gripperHeightPt / 2 - 4),
-          size: 8,
-          font: fontHelveticaBold,
-          color: rgb(0.45, 0.5, 0.58),
-        }
-      );
-
-      // Sheet Margin Box on Back
+      // Sheet Margin Box on Back (Centered)
       pageBack.drawRectangle({
         x: marginPt,
-        y: gripperHeightPt,
+        y: marginPt,
         width: sheetWidthPt - marginPt * 2,
-        height: sheetHeightPt - gripperHeightPt - marginPt,
-        borderColor: rgb(0.85, 0.88, 0.92),
+        height: sheetHeightPt - marginPt * 2,
+        borderColor: rgb(0.88, 0.9, 0.94),
         borderWidth: 0.5,
       });
 
@@ -834,13 +801,24 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           const embedded = embeddedSourcesCache.get(item.pdf_source_url);
 
           if (embedded && embedded.back) {
-            // Draw embedded vector source page (Page 2 / Back)
-            pageBack.drawPage(embedded.back, {
-              x: backItemXPt,
-              y: itemYPt,
-              width: itemWWithBleedPt,
-              height: itemHWithBleedPt,
-            });
+            // Draw embedded vector source page (Page 2 / Back) with rotation support
+            if (item.rotation_deg === 90) {
+              pageBack.drawPage(embedded.back, {
+                x: backItemXPt + itemWWithBleedPt,
+                y: itemYPt,
+                width: itemHWithBleedPt,
+                height: itemWWithBleedPt,
+                rotate: degrees(90),
+              });
+            } else {
+              pageBack.drawPage(embedded.back, {
+                x: backItemXPt,
+                y: itemYPt,
+                width: itemWWithBleedPt,
+                height: itemHWithBleedPt,
+                rotate: degrees(0),
+              });
+            }
           } else {
             pageBack.drawRectangle({
               x: backTrimXPt,

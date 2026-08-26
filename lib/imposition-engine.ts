@@ -9,6 +9,7 @@ import {
   WorkflowDetails,
 } from '@/types/imposition';
 import { updateJobInStore } from './job-store';
+import { checkFilenameDimensionMismatch } from './validation';
 
 /**
  * Executes or delegates the imposition calculation.
@@ -121,7 +122,7 @@ export function runInternalLayoutEngine(jobId: string, payload: ImpositionJobPay
  * Generates exact print-engineering slot sequences:
  * [ORDER_INFO_PANEL -> PRODUCT -> WASTE_SLOT -> NEXT_ORDER_START_MARKER -> ORDER_END_MARKER]
  */
-function runGangingWorkflow(jobId: string, payload: ImpositionJobPayload, startTime: number): JobResult {
+export function runGangingWorkflow(jobId: string, payload: ImpositionJobPayload, startTime: number): JobResult {
   const { sheet, orders, device_type, pdf_standard } = payload;
   const sheetWidth = sheet.width_mm;
   const sheetHeight = sheet.height_mm;
@@ -468,6 +469,8 @@ function runGangingWorkflow(jobId: string, payload: ImpositionJobPayload, startT
 export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayload, startTime: number): JobResult {
   const { sheet, orders, device_type, pdf_standard } = payload;
 
+  const mismatchWarning = checkFilenameDimensionMismatch(orders);
+
   // Use SRA3 press sheet dimensions (480 x 330 mm) for multi-up imposition
   const isSmallSheet = sheet.width_mm < 400 || sheet.height_mm < 300;
   const sheetWidth = isSmallSheet ? 480.0 : sheet.width_mm;
@@ -476,15 +479,32 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
   const sampleOrder = orders[0];
   const trimW = sampleOrder?.trim_width_mm ?? 105.0;
   const trimH = sampleOrder?.trim_height_mm ?? 148.0;
-  const bleed = sampleOrder?.bleed_mm ?? 0.0;
-  const itemTotalW = trimW + 2 * bleed;
-  const itemTotalH = trimH + 2 * bleed;
+  const bleed = sampleOrder?.bleed_mm ?? 3.0;
 
-  // Grid calculation on press sheet (480x330mm gives 4 cols x 2 rows = 8 slots)
-  const cols = Math.max(1, Math.floor(sheetWidth / itemTotalW));
-  const rows = Math.max(1, Math.floor(sheetHeight / itemTotalH));
-  const slotsPerSheet = cols * rows; // e.g. 8 stacks
+  // AUTO-OPTIMIZATION OF ORIENTATION (0° vs 90°)
+  // Test 0°:
+  const orient0_W = trimW + 2 * bleed;
+  const orient0_H = trimH + 2 * bleed;
+  const cols0 = Math.max(1, Math.floor(sheetWidth / orient0_W));
+  const rows0 = Math.max(1, Math.floor(sheetHeight / orient0_H));
+  const count0 = cols0 * rows0;
 
+  // Test 90°:
+  const orient90_W = trimH + 2 * bleed;
+  const orient90_H = trimW + 2 * bleed;
+  const cols90 = Math.max(1, Math.floor(sheetWidth / orient90_W));
+  const rows90 = Math.max(1, Math.floor(sheetHeight / orient90_H));
+  const count90 = cols90 * rows90;
+
+  const use90 = count90 > count0;
+  const bestRotation: 0 | 90 = use90 ? 90 : 0;
+  const itemTotalW = use90 ? orient90_W : orient0_W;
+  const itemTotalH = use90 ? orient90_H : orient0_H;
+  const cols = use90 ? cols90 : cols0;
+  const rows = use90 ? rows90 : rows0;
+  const slotsPerSheet = cols * rows;
+
+  // SYMMETRIC CENTERING
   const gridTotalW = cols * itemTotalW;
   const gridTotalH = rows * itemTotalH;
   const offsetX = Number(((sheetWidth - gridTotalW) / 2).toFixed(2));
@@ -589,7 +609,7 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
   const sheets: SheetLayout[] = [];
 
   // =========================================================
-  // 1. GENERATE SHEET 1 (STACK COVER SHEET FOR ALL 8 STACKS)
+  // 1. GENERATE SHEET 1 (STACK COVER SHEET FOR ALL STACKS)
   // =========================================================
   const coverPlacedItems: PlacedItem[] = [];
   const coverHorizCuts = new Set<number>();
@@ -618,7 +638,7 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
         trim_width_mm: trimW,
         trim_height_mm: trimH,
         bleed_mm: bleed,
-        rotation_deg: 0,
+        rotation_deg: bestRotation,
         slot_type: 'STACK_COVER',
         stack_number: stackNo,
         total_stacks: slotsPerSheet,
@@ -687,7 +707,6 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
     sheet_name: `sheet 1/${totalSheetsRequired}`,
     width_mm: sheetWidth,
     height_mm: sheetHeight,
-    gripper_edge: 'BOTTOM',
     placed_items: coverPlacedItems,
     cut_lines: coverCutLines,
     waste_area_sqm: Math.max(0, totalSheetAreaSqm - coverUsedArea),
@@ -726,7 +745,7 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
             trim_width_mm: itemTemplate.trim_width_mm,
             trim_height_mm: itemTemplate.trim_height_mm,
             bleed_mm: itemTemplate.bleed_mm,
-            rotation_deg: 0,
+            rotation_deg: bestRotation,
             slot_type: itemTemplate.slot_type,
             sequence_number: itemTemplate.sequence_number,
             customer_reference: itemTemplate.customer_reference,
@@ -764,7 +783,7 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
             trim_width_mm: trimW,
             trim_height_mm: trimH,
             bleed_mm: bleed,
-            rotation_deg: 0,
+            rotation_deg: bestRotation,
             slot_type: 'WASTE_SLOT',
             order_quantity: 0,
             plate_id: '2954502725',
@@ -824,7 +843,6 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
       sheet_name: `sheet ${currentSheetIndex}/${totalSheetsRequired}`,
       width_mm: sheetWidth,
       height_mm: sheetHeight,
-      gripper_edge: 'BOTTOM',
       placed_items: prodPlacedItems,
       cut_lines: prodCutLines,
       waste_area_sqm: Math.max(0, totalSheetAreaSqm - prodUsedArea),
@@ -876,5 +894,6 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
     sheets: sheets,
     workflow_details: workflowDetails,
     service_origin: 'INTERNAL_CALC_ENGINE',
+    filename_dimension_mismatch_warning: mismatchWarning,
   };
 }

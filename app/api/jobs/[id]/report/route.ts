@@ -43,7 +43,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     // Obliczenia parametrów technologicznych
     const sheetArea = job.sheet.width_mm * job.sheet.height_mm;
     const printableWidth = job.sheet.width_mm - (job.sheet.margins_mm * 2);
-    const printableHeight = job.sheet.height_mm - (job.sheet.margins_mm + job.sheet.gripper_margin_mm);
+    const printableHeight = job.sheet.height_mm - (job.sheet.margins_mm * 2);
     const printableArea = printableWidth * printableHeight;
 
     const ordersWithStats = job.orders.map((order, idx) => {
@@ -320,7 +320,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       <div class="stat-card">
         <div class="stat-label">Arkusz Surowy (Raw Sheet)</div>
         <div class="stat-value">${job.sheet.width_mm} × ${job.sheet.height_mm} <span style="font-size:13px;">mm</span></div>
-        <div class="stat-sub">Łapka: <strong>${job.sheet.gripper_margin_mm} mm</strong>, Margines: <strong>${job.sheet.margins_mm} mm</strong></div>
+        <div class="stat-sub">Margines: <strong>${job.sheet.margins_mm} mm</strong> (symetryczny)</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Nakład Arkuszy (Sheets Required)</div>

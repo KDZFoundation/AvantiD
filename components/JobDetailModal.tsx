@@ -250,6 +250,21 @@ if data.get("status") == "COMPLETED":
             </div>
           )}
 
+          {/* Filename Dimension Mismatch Warning */}
+          {job.result?.filename_dimension_mismatch_warning && (
+            <div className="rounded-xl border border-orange-300 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/40 p-4 flex items-start gap-3 text-orange-900 dark:text-orange-200">
+              <AlertCircle className="h-5 w-5 text-orange-600 dark:text-orange-400 shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <h4 className="text-sm font-bold text-orange-950 dark:text-orange-100">
+                  Ostrzeżenie: Rozbieżność wymiarów w nazwie pliku
+                </h4>
+                <p className="text-xs text-orange-800 dark:text-orange-300">
+                  {job.result.filename_dimension_mismatch_warning}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Interactive Layout Visualizer (if results available) */}
           {job.result && currentSheet && (
             <div className="space-y-2">
@@ -259,7 +274,7 @@ if data.get("status") == "COMPLETED":
                   Wizualizacja arkusza produkcyjnego (Podgląd wektorowy)
                 </h4>
                 <span className="text-xs text-neutral-500 font-mono">
-                  Format arkusza: {job.sheet.width_mm} × {job.sheet.height_mm} mm (Margines: {job.sheet.margins_mm}mm, Łapka: {job.sheet.gripper_margin_mm}mm)
+                  Format arkusza: {job.sheet.width_mm} × {job.sheet.height_mm} mm (Margines: {job.sheet.margins_mm}mm)
                 </span>
               </div>
 
