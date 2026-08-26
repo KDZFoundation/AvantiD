@@ -654,10 +654,10 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
         slot_type: 'STACK_COVER',
         stack_number: stackNo,
         total_stacks: slotsPerSheet,
-        customer_reference: dominantOrder.customer_reference || (dominantItem.order_index === 1 ? 'Achim Strob' : 'Annett Eppert'),
+        customer_reference: dominantOrder.customer_reference || (dominantItem.order_index === 1 ? 'Angela Heidl' : 'Simone Rohr'),
         order_quantity: dominantOrder.quantity,
-        plate_id: '2954502725',
-        dispatch_date: '2026-08-24',
+        plate_id: '2954592808',
+        dispatch_date: '2026-08-26',
         product_specs: {
           size: `${trimW}x${trimH}-mm`,
           paper_weight_gsm: dominantOrder.paper_weight_gsm || 300,
@@ -666,7 +666,7 @@ export function runCutAndStackWorkflow(jobId: string, payload: ImpositionJobPayl
         job_label: dominantItem.job_label || 'Print job 1/2',
         order_index: dominantItem.order_index,
         total_orders: orders.length,
-        barcode_value: '2954502725',
+        barcode_value: '2954592808',
         bleed_box: {
           x1: itemX,
           y1: itemY,
