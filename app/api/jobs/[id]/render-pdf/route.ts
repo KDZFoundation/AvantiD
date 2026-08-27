@@ -681,19 +681,21 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           drawCropMarks(pageFront, trimXPt, trimYPt, trimWidthPt, trimHeightPt);
         } else if (slotType === 'ORDER_INFO_PANEL') {
           // ORDER_INFO_PANEL (Gelato production header card)
+          // Background and CMYK bars extend to the BLEED box (+3mm each side per printer feedback),
+          // while text labels below remain anchored to the trim box for readability.
           pageFront.drawRectangle({
-            x: trimXPt,
-            y: trimYPt,
-            width: trimWidthPt,
-            height: trimHeightPt,
+            x: itemXPt,
+            y: itemYPt,
+            width: itemWWithBleedPt,
+            height: itemHWithBleedPt,
             color: rgb(1, 1, 1),
           });
 
-          // Top and Bottom CMYK Bars
-          drawColorControlBar(pageFront, trimXPt, trimYPt + trimHeightPt - 5, trimWidthPt, 5);
-          drawColorControlBar(pageFront, trimXPt, trimYPt, trimWidthPt, 5);
-          drawColorControlBar(pageFront, trimXPt, trimYPt + 5, 4, trimHeightPt - 10, true);
-          drawColorControlBar(pageFront, trimXPt + trimWidthPt - 4, trimYPt + 5, 4, trimHeightPt - 10, true);
+          // Top and Bottom CMYK Bars (on bleed box)
+          drawColorControlBar(pageFront, itemXPt, itemYPt + itemHWithBleedPt - 5, itemWWithBleedPt, 5);
+          drawColorControlBar(pageFront, itemXPt, itemYPt, itemWWithBleedPt, 5);
+          drawColorControlBar(pageFront, itemXPt, itemYPt + 5, 4, itemHWithBleedPt - 10, true);
+          drawColorControlBar(pageFront, itemXPt + itemWWithBleedPt - 4, itemYPt + 5, 4, itemHWithBleedPt - 10, true);
 
           pageFront.drawText(String(item.barcode_value || item.order_id || plateIdText), {
             x: trimXPt + 8,
@@ -825,8 +827,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         }
       });
 
-      // Gelato Hairline Registration Mark at Bottom Right
-      drawRegistrationMark(pageFront, sheetWidthPt - 10, 10);
+      // Hairline Registration Marks - all 4 corners, offset 3mm from sheet edge (per printer feedback)
+      {
+        const regOffset = 3 * MM_TO_PT;
+        drawRegistrationMark(pageFront, regOffset, regOffset); // Bottom-Left
+        drawRegistrationMark(pageFront, sheetWidthPt - regOffset, regOffset); // Bottom-Right
+        drawRegistrationMark(pageFront, regOffset, sheetHeightPt - regOffset); // Top-Left
+        drawRegistrationMark(pageFront, sheetWidthPt - regOffset, sheetHeightPt - regOffset); // Top-Right
+      }
 
       // Vertical Margin Marks: "No protection" in light cyan
       pageFront.drawText('No protection', {
@@ -1013,8 +1021,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         }
       });
 
-      // Gelato Hairline Registration Mark at Bottom Left on Back (mirrored)
-      drawRegistrationMark(pageBack, 10, 10);
+      // Hairline Registration Marks - all 4 corners, offset 3mm from sheet edge (per printer feedback)
+      {
+        const regOffset = 3 * MM_TO_PT;
+        drawRegistrationMark(pageBack, regOffset, regOffset); // Bottom-Left
+        drawRegistrationMark(pageBack, sheetWidthPt - regOffset, regOffset); // Bottom-Right
+        drawRegistrationMark(pageBack, regOffset, sheetHeightPt - regOffset); // Top-Left
+        drawRegistrationMark(pageBack, sheetWidthPt - regOffset, sheetHeightPt - regOffset); // Top-Right
+      }
 
       // Vertical Red Slug on Right Margin (Back)
       pageBack.drawText(plateIdText, {
