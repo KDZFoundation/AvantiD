@@ -3,6 +3,7 @@ import { z } from 'zod';
 export const OrderItemSchema = z
   .object({
     order_id: z.string().min(1, 'order_id cannot be empty'),
+    customer_reference: z.string().optional(),
     pdf_source_url: z
       .string()
       .min(1, 'pdf_source_url cannot be empty')
@@ -32,6 +33,9 @@ export const OrderItemSchema = z
       .max(10000000, 'quantity cannot exceed 10,000,000'),
     custom_label: z.string().optional(),
     priority: z.number().int().optional(),
+    paper_weight_gsm: z.number().positive().optional(),
+    paper_finish: z.string().optional(),
+    coating: z.string().optional(),
   })
   .transform((data, ctx) => {
     let width = data.trim_width_mm;
@@ -102,7 +106,13 @@ export const ImpositionJobPayloadSchema = z.object({
       message: "pdf_standard must be either 'PDF/X-4' or 'PDF/X-1a'",
     })
     .default('PDF/X-4'),
-  sheet: SheetConfigSchema,
+  sheet: SheetConfigSchema.optional().default({
+    name: 'SRA3 Arkusz Drukarski (480x330mm)',
+    width_mm: 480.0,
+    height_mm: 330.0,
+    margins_mm: 5.0,
+    gripper_margin_mm: 0.0,
+  }),
   orders: z
     .array(OrderItemSchema)
     .min(1, 'At least 1 order item is required for imposition'),
