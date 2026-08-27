@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateApiKey } from '@/lib/auth';
 import { ImpositionJobPayloadSchema } from '@/lib/validation';
 import { saveJobToStore, listJobsFromStore } from '@/lib/job-store';
-import { executeImpositionJob } from '@/lib/imposition-engine';
+import { runInternalLayoutEngine } from '@/lib/imposition-engine';
 import { ImpositionJob } from '@/types/imposition';
 
-// POST /api/jobs - Accepts POD imposition job, returns 202 Accepted
+// POST /api/jobs - Accepts POD imposition job, returns COMPLETED or 202
 export async function POST(req: NextRequest) {
   // 1. Authenticate incoming request (Azure POD via X-API-Key or Test Panel)
   const auth = validateApiKey(req);
@@ -55,19 +55,25 @@ export async function POST(req: NextRequest) {
   const payload = parseResult.data;
   const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   const nowIso = new Date().toISOString();
+  const startTime = Date.now();
 
-  // 3. Create initial QUEUED record
-  const initialJob: ImpositionJob = {
+  // 3. Compute imposition layout immediately
+  const result = runInternalLayoutEngine(jobId, payload, startTime);
+
+  const completedJob: ImpositionJob = {
     id: jobId,
     name: payload.name,
-    status: 'QUEUED',
+    status: 'COMPLETED',
     workflow: payload.workflow,
     device_type: payload.device_type,
     pdf_standard: payload.pdf_standard,
     sheet: payload.sheet,
     orders: payload.orders,
     created_at: nowIso,
-    updated_at: nowIso,
+    started_at: nowIso,
+    completed_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    result: result,
     client_metadata: {
       source_system: auth.source,
       auth_method: auth.keyUsed,
@@ -76,30 +82,27 @@ export async function POST(req: NextRequest) {
   };
 
   try {
-    await saveJobToStore(initialJob);
-
-    // 4. Trigger asynchronous imposition optimization execution without blocking response
-    executeImpositionJob(jobId, payload).catch((err) => {
-      console.error(`[BackgroundExecution] Unhandled failure in job ${jobId}:`, err);
-    });
+    await saveJobToStore(completedJob);
 
     const baseUrl = process.env.APP_URL || req.nextUrl.origin;
     const statusUrl = `${baseUrl}/api/jobs/${jobId}`;
 
-    // 5. Return 202 Accepted immediately as per async microservice pattern
     return NextResponse.json(
       {
         job_id: jobId,
-        status: 'QUEUED',
+        status: 'COMPLETED',
         workflow: payload.workflow,
         device_type: payload.device_type,
         pdf_standard: payload.pdf_standard,
         status_url: statusUrl,
+        download_pdf_url: `/api/jobs/${jobId}/render-pdf`,
         created_at: nowIso,
-        message: 'Imposition job accepted and queued for optimization.',
+        completed_at: completedJob.completed_at,
+        result: result,
+        message: 'Imposition job generated successfully.',
       },
       {
-        status: 202,
+        status: 201,
         headers: {
           Location: statusUrl,
         },

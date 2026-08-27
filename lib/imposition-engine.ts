@@ -73,8 +73,6 @@ export async function executeImpositionJob(jobId: string, payload: ImpositionJob
       }
     } else {
       // Run native print-engineering optimization engine (with clear separation between workflows)
-      // Simulate realistic async computational delay for microservice parity
-      await new Promise((resolve) => setTimeout(resolve, 800));
       result = runInternalLayoutEngine(jobId, payload, startTime);
     }
 
