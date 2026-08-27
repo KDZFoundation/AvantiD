@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { safeCompare } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   const internalSecret = process.env.INTERNAL_TEST_PANEL_SECRET;
@@ -18,7 +19,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { password } = body;
 
-    if (!password || password !== internalSecret) {
+    if (!password || !safeCompare(password, internalSecret)) {
       return NextResponse.json(
         {
           error: 'Unauthorized',

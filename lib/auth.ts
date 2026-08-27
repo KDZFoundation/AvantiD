@@ -1,10 +1,25 @@
 import { NextRequest } from 'next/server';
+import crypto from 'crypto';
 
 export interface AuthResult {
   isAuthenticated: boolean;
   source: 'AZURE_EXTERNAL_POD' | 'INTERNAL_DEV_PANEL' | 'UNAUTHORIZED';
   error?: string;
   keyUsed?: string;
+}
+
+/**
+ * Timing-safe string comparison to prevent side-channel timing attacks.
+ * Compares lengths first (non-secret metadata), then performs crypto.timingSafeEqual on equal-length buffers.
+ */
+export function safeCompare(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
 }
 
 export function validateApiKey(req: NextRequest): AuthResult {
@@ -35,7 +50,7 @@ export function validateApiKey(req: NextRequest): AuthResult {
   }
 
   if (sessionCookie && internalTestSecret && internalTestSecret.trim().length > 0) {
-    if (sessionCookie === internalTestSecret) {
+    if (safeCompare(sessionCookie, internalTestSecret)) {
       return {
         isAuthenticated: true,
         source: 'INTERNAL_DEV_PANEL',
@@ -46,7 +61,7 @@ export function validateApiKey(req: NextRequest): AuthResult {
 
   // 3. Check query parameters for direct download links (e.g. ?api_key=... or ?key=...)
   const queryKey = req.nextUrl.searchParams.get('api_key') || req.nextUrl.searchParams.get('key') || req.nextUrl.searchParams.get('token');
-  if (queryKey && queryKey === configuredSecret) {
+  if (queryKey && safeCompare(queryKey, configuredSecret)) {
     return {
       isAuthenticated: true,
       source: 'AZURE_EXTERNAL_POD',
@@ -68,7 +83,7 @@ export function validateApiKey(req: NextRequest): AuthResult {
   }
 
   // 4. Strict timing-safe / constant matching against configuredSecret ONLY
-  if (token === configuredSecret) {
+  if (safeCompare(token, configuredSecret)) {
     return {
       isAuthenticated: true,
       source: 'AZURE_EXTERNAL_POD',

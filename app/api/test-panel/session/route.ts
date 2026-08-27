@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { safeCompare } from '@/lib/auth';
 
 // GET /api/test-panel/session - Checks if user has a valid pod_test_session cookie
 export async function GET(req: NextRequest) {
@@ -16,7 +17,7 @@ export async function GET(req: NextRequest) {
 
   const sessionCookie = req.cookies.get('pod_test_session')?.value;
 
-  if (sessionCookie && sessionCookie === internalSecret) {
+  if (sessionCookie && safeCompare(sessionCookie, internalSecret)) {
     return NextResponse.json({
       authenticated: true,
       message: 'Aktywna sesja deweloperska panelu testowego.',
