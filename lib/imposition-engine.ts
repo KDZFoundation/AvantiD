@@ -10,6 +10,7 @@ import {
 } from '@/types/imposition';
 import { updateJobInStore } from './job-store';
 import { checkFilenameDimensionMismatch } from './validation';
+import { runCoreLayoutAdapter } from './imposition-core-adapter';
 
 /**
  * Executes or delegates the imposition calculation.
@@ -174,13 +175,7 @@ export function calculateBestOrientation(
  * 2. CUT_AND_STACK (multi-up sequence stacking for books, tickets, continuous runs)
  */
 export function runInternalLayoutEngine(jobId: string, payload: ImpositionJobPayload, startTime: number): JobResult {
-  if (payload.workflow === 'GANGING') {
-    return runGangingWorkflow(jobId, payload, startTime);
-  } else if (payload.workflow === 'CUT_AND_STACK') {
-    return runCutAndStackWorkflow(jobId, payload, startTime);
-  } else {
-    throw new Error(`Unsupported workflow type: ${payload.workflow}`);
-  }
+  return runCoreLayoutAdapter(jobId, payload, startTime);
 }
 
 /**

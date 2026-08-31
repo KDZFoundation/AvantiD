@@ -17,6 +17,7 @@ const memoryJobs = globalJobStore.__POD_IMPOSITION_MEMORY_JOBS__;
 let isFirestoreQuotaExceeded = globalJobStore.__POD_FIRESTORE_QUOTA_EXCEEDED__ || false;
 let lastQuotaCheckTime = 0;
 let isStoreInitialized = false;
+const isNodeTestRuntime = process.env.NODE_TEST_CONTEXT !== undefined;
 
 export const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || firebaseConfig.projectId || 'avanti-2adfd';
 export const FIRESTORE_DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || firebaseConfig.firestoreDatabaseId || 'ai-studio-podimpositionapi-cd763197-25ef-4268-a1c7-f11afc442ec5';
@@ -109,7 +110,7 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs = 2000): Promise<T>
 export async function saveJobToStore(job: ImpositionJob): Promise<void> {
   memoryJobs.set(job.id, { ...job });
 
-  if (isFirestoreQuotaExceeded || Boolean(globalJobStore.__POD_FIRESTORE_QUOTA_EXCEEDED__)) {
+  if (isNodeTestRuntime || isFirestoreQuotaExceeded || Boolean(globalJobStore.__POD_FIRESTORE_QUOTA_EXCEEDED__)) {
     return;
   }
 
@@ -138,7 +139,7 @@ export async function updateJobInStore(jobId: string, updates: Partial<Impositio
     memoryJobs.set(jobId, { id: jobId, ...updates } as ImpositionJob);
   }
 
-  if (isFirestoreQuotaExceeded || Boolean(globalJobStore.__POD_FIRESTORE_QUOTA_EXCEEDED__)) {
+  if (isNodeTestRuntime || isFirestoreQuotaExceeded || Boolean(globalJobStore.__POD_FIRESTORE_QUOTA_EXCEEDED__)) {
     return;
   }
 

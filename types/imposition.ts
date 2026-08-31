@@ -139,6 +139,8 @@ export interface WorkflowDetails {
 }
 
 export interface JobResult {
+  contract_version?: '1.0';
+  plan_fingerprint?: string;
   yield_percentage: number;
   waste_percentage: number;
   total_waste_sqm: number;
